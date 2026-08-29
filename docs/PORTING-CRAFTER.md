@@ -264,3 +264,19 @@ divergence buys is a heading that is readable at a 24 px tile without a label
 — a re-tinted rig at that size reads as four identical smudges, and this board
 has `showPlayerLabels: false` and no text on the board layer at all, so the
 sprite is the only thing that can carry the facing.
+
+### J. There is no `roster.nim`; its three named edits live in `sim_state.nim`
+
+The note's Kept table maps `src/ctf/roster.nim` to `src/crafter/roster.nim`
+with three named edits (the alias, the achievement ids, and
+`squadResultsJson` → `runResultsJson`). All three behaviours are present and
+all three are asserted, but the module split is not: `IdentityNames`,
+`seatAlias`, `addPlayer`, `seatName` and `runResultsJson` are in
+`src/crafter/sim_state.nim`, and `recordAchievement` with the
+`achievementTick[22]` array is in `src/crafter/achievements.nim`.
+
+The starter's `roster.nim` is a multi-squad roster: teams, squads, per-team
+score arrays, join/auth across four seats. With `num_agents` fixed at 1 there
+is one seat and no squad, and what survived the retarget was a dozen procs over
+the sim's own state — a module boundary between them and the sim would have
+been a header for a struct with one member.
