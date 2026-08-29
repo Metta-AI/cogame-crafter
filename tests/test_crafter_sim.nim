@@ -490,6 +490,30 @@ suite "achievements, turns and scoring":
     check sim.cog.energy() == VitalMax
     check sim.ledger.has(aWakeUp)
 
+  test "wake_up also unlocks when a bite is what ends the rested run":
+    ## §The seventeen actions: "any other primitive wakes it, AND SO DOES
+    ## TAKING CREATURE/ARROW DAMAGE". The predicate for achievement 16 is
+    ## about the RUN — began below 9, ends at 9 — not about what ended it, so
+    ## a zombie that bites a fully rested sleeper still unlocks it.
+    var sim = fresh()
+    sim.clearAround()
+    sim.cog.vitals[vEnergy] = 8
+    discard sim.beginTurn()
+    sim.installPlan(@[pSleep, pSleep], false, 0, 0)
+    sim.stepTick()                        ## asleep, energy 9
+    sim.pending.setLen(0)
+    check sim.cog.asleep
+    check sim.cog.energy() == VitalMax
+    check not sim.ledger.has(aWakeUp)
+    ## A zombie 4-adjacent, ready to bite on the next tick.
+    sim.herd.list.add(Creature(kind: ckZombie, x: sim.cog.x + 1, y: sim.cog.y,
+                              hp: 5, lastAct: -100, alive: true))
+    sim.stepTick()
+    sim.pending.setLen(0)
+    check not sim.cog.asleep
+    check sim.damageTaken > 0
+    check sim.ledger.has(aWakeUp)
+
   test "the turn and tick order, end to end":
     ## Item 14.
     var sim = fresh()

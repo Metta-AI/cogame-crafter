@@ -503,6 +503,16 @@ proc stepTick*(sim: var SimServer) =
       sim.emit(SimEvent(kind: evHurt, x: hit.x, y: hit.y, n: hit.amount,
         m: sim.cog.health(), a: $hit.by))
       if sim.cog.asleep:
+        ## Damage wakes the cog (§The seventeen actions: "any other primitive
+        ## wakes it, and so does taking creature/arrow damage"), and a sleep
+        ## run that ENDS here ends for achievement 16 as well — the predicate
+        ## is "a run of >= 1 sleep ticks that began with energy < 9 ends with
+        ## energy == 9", not "ended by a primitive". This is the same test
+        ## `applyPrimitive` makes on the healthy path.
+        if sim.cog.energy() >= VitalMax and
+            sim.cog.sleepRunStartEnergy < VitalMax:
+          sim.emit(SimEvent(kind: evSleep, a: "end", n: sim.cog.energy()))
+          sim.recordUnlock(aWakeUp)
         sim.cog.asleep = false
         sim.cog.sleepRun = 0
       if sim.cog.health() <= 0 and sim.deathCause == dcNone:
