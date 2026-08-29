@@ -320,3 +320,24 @@ destination is where CI runs 33225446565 and 33226980062 both died. The panel
 is `position: absolute`, so its markup position has no effect on screen, and
 the move is made by `tools/build_broadcast_page.py` as an enumerated edit —
 `ci.yml` re-derives the page against the pinned starter on every push.
+
+### M. Playback runs at one tick per animation frame, and the speed chips are integers
+
+The note's §Transport rules asks for "one tick per three animation frames at
+30 fps = 10 ticks/second (speed chips `[0.5, 1, 2, 4, 8]`, default 1)", so a
+1344-tick episode plays for 134 s.
+
+This viewer plays **one tick per presentation frame at `TargetFps` = 24**, with
+`PlaybackSpeeds = [1, 2, 4, 8, 16, 32]` and default 1 — the starter's own
+transport, whose speed multiplier is the integer tick budget per frame
+(`replayStepBudget`) and cannot express a half. A 1344-tick episode plays for
+56 s, and the CI smoke's 949-tick replay for ~40 s, measured in the
+`wasm-viewer` job: `soak: 10s of playback kept advancing ("2 / 950" ->
+"194 / 950" -> "242 / 950")`.
+
+The arithmetic the note's cadence exists to protect is the one that matters —
+a replay must comfortably outlast `viewer_smoke.mjs --soak 10` rather than
+finish inside it (the ecos 2026-08-23 scar) — and 40 s of playback clears a
+10 s soak four times over. Halving the tick rate to reach exactly 10 ticks/s
+would mean a fractional speed chip in a transport that is otherwise the
+starter's verbatim.
