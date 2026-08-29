@@ -68,6 +68,23 @@ suite "world generation":
         check counts[1] >= 3
         check counts[2] >= 1
 
+  test "the guaranteed tree, water and stone are still REACHABLE afterwards":
+    ## The regression for the post-pass's ordering hazard. Items 2 and 3 check
+    ## that a tree, water and stone EXIST near spawn and that a full-knowledge
+    ## solver can climb the tech tree; neither checks that the connectivity
+    ## carve left its own guarantee intact. It did not: the corridor is sanded
+    ## cell by cell and used to skip any coal, iron or diamond in the way, so
+    ## on **seed 105** (both variants) the only corridor to the only reachable
+    ## tree was severed by a single coal cell — which no cog can mine before it
+    ## has the wood for a pickaxe.
+    for variant in ["standard", "longnight"]:
+      let base = testConfig(variant)
+      for seed in 1 .. 200:
+        let world = generate(seed, base.mountainThreshold)
+        let region = world.landRegion()
+        for terrain in [tTree, tWater, tStone]:
+          check world.touches(region, terrain)
+
   test "every cell holds exactly one terrain from the closed enum":
     let world = generate(9, 700)
     var seen: HashSet[int]

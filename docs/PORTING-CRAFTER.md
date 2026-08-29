@@ -112,13 +112,23 @@ of spawn. They do not guarantee the cog can **walk** to one, and 15 of 60
 with all the wood on the far shore — unwinnable, which is exactly what the
 post-pass exists to prevent ("every seed is completable").
 
-Step 5 is therefore a deterministic **connectivity carve**: for each of tree,
-water and stone in that order, if no cell of that kind touches the land region
-reachable from spawn, an L-shaped corridor of `sand` is carved to the nearest
-one — horizontal first, then vertical, never through the bedrock ring, never
-over the forced 3 × 3 grass at spawn, and **never over coal, iron or
-diamond**. It runs **before** the ore minima (now step 6), so a corridor can
-never take the only iron seam in the world with it.
+Steps 2-5 are therefore run **together, to a fixed point** (at most three
+sweeps; the second is a no-op on any seed the first settled). Steps 2-4 place a
+tree, water and stone within reach if the generator left none, and step 5 is a
+deterministic **connectivity carve**: for each of tree, water and stone in that
+order, if no cell of that kind touches the land region reachable from spawn, an
+L-shaped corridor of `sand` is carved to the nearest one — horizontal first,
+then vertical, never through the bedrock ring and never over the forced 3 × 3
+grass at spawn. The two halves are interdependent in both directions: a
+corridor sands over whatever is in the way, which can take the only tree step 2
+forced, and a replacement tree can in turn sit off the reachable land. One
+ordered pass leaves both holes open.
+
+The corridor **does** sand over coal, iron and diamond when they are in the
+way. A corridor with one unsanded cell in it is not a corridor: on seed 105 a
+single coal cell severed the only route to the only reachable tree, and no cog
+can mine coal before it has the wood for a pickaxe. The **ore minima are step
+6, after this**, so any count a corridor spends is restored.
 
 `oreHost` gained a fallback for the same reason: a seed whose only stone is the
 single cell step 4 forced would otherwise spend it on coal and end with no iron
@@ -126,8 +136,9 @@ and no diamond. When there is no stone left the ore goes to the
 highest-mountain walkable cell at least ten cells from spawn.
 
 `tests/test_crafter_world.nim` items 2 and 3 are what hold this: over 200 seeds
-of both variants the invariants hold, and over 60 seeds of each a full-knowledge
-reference solver (test-only, never shipped in the image) reaches
+of both variants the invariants hold, a **reachable** tree, water and stone
+still exist after the whole post-pass, and over 60 seeds of each a
+full-knowledge reference solver (test-only, never shipped in the image) reaches
 `collect_diamond`.
 
 ### B. The glyph vocabulary is **twenty-one**, not twenty

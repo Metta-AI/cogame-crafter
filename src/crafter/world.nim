@@ -227,10 +227,16 @@ proc nearestOf*(world: World, region: openArray[bool],
 
 proc carve*(world: var World, fromX, fromY, toX, toY: int) =
   ## An L-shaped SAND corridor: horizontal first, then vertical. The bedrock
-  ## ring, the target cell itself and the forced 3 x 3 grass block at spawn
-  ## are never touched.
+  ## ring, the target cell itself and the forced 3 x 3 grass block at spawn are
+  ## never touched.
+  ##
+  ## EVERYTHING ELSE ON THE PATH IS SANDED, ore included: a corridor with one
+  ## unsanded cell in it is not a corridor, and `keep`ing coal out of the way
+  ## left seed 105 with its only reachable tree behind a single coal cell —
+  ## which no cog can mine before it has the wood for a pickaxe. The ore minima
+  ## (post-pass step 6) run AFTER this and restore any count a corridor spent.
   template keep(px, py: int): bool =
-    world.cells[idx(px, py)] in {tBedrock, tCoal, tIron, tDiamond} or
+    world.cells[idx(px, py)] == tBedrock or
       chebyshev(px, py, SpawnX, SpawnY) <= 1
   var x = fromX
   while x != toX:
@@ -266,38 +272,60 @@ proc generate*(seed, mountainThreshold: int): World =
   for dy in -1 .. 1:
     for dx in -1 .. 1:
       result.setAt(SpawnX + dx, SpawnY + dy, tGrass)
-  # 2..4. A tree within 12, water within 12, stone within 20.
-  if not result.withinRadius(tTree, 12):
-    let spot = result.firstGrassAtRing(6)
-    if spot.ok: result.setAt(spot.x, spot.y, tTree)
-  if not result.withinRadius(tWater, 12):
-    let spot = result.firstGrassAtRing(8)
-    if spot.ok: result.setAt(spot.x, spot.y, tWater)
-  if not result.withinRadius(tStone, 20):
-    let spot = result.firstGrassAtRing(14)
-    if spot.ok: result.setAt(spot.x, spot.y, tStone)
-  # 5. CONNECTIVITY. Steps 2-4 guarantee a tree, water and stone EXIST within
-  #    reach of spawn; they do not guarantee the cog can WALK to one, and a
-  #    seed whose spawn is a three-by-three island in a lake is unwinnable
-  #    however much wood is on the far shore. This step is the design note's
-  #    own promise ("every seed is completable") made true: for each of tree,
-  #    water and stone in that order, if no cell of that kind touches the land
-  #    region the cog can reach, carve an L-shaped SAND corridor to the
-  #    nearest one — horizontal first, then vertical, never through the
-  #    bedrock ring and never over the target itself. Deterministic, integer,
-  #    and a no-op on a seed that was already connected.
-  #    (docs/PORTING-CRAFTER.md records it as a divergence from the note's
-  #    five-step post-pass.) It runs BEFORE the ore minima, and never sands
-  #    over coal, iron or diamond, so a corridor can never take the only iron
-  #    seam in the world with it.
-  for terrain in [tTree, tWater, tStone]:
-    let region = result.landRegion()
-    if result.touches(region, terrain):
-      continue
-    let target = result.nearestOf(region, terrain)
-    if not target.found:
-      continue
-    result.carve(target.fromX, target.fromY, target.x, target.y)
+  # 2..5. A tree within 12, water within 12 and stone within 20 (steps 2-4),
+  #    each of them REACHABLE (step 5).
+  #
+  #    The two halves are interdependent, so they run TOGETHER to a fixed
+  #    point rather than once each: `carve` sands its corridor over whatever
+  #    is in the way, which can take with it the only tree step 2 forced, and
+  #    a replacement dropped by a re-run of step 2 can in turn sit off the
+  #    reachable land. A single ordered pass leaves both holes open. Three
+  #    sweeps is the bound; the second is a no-op on any seed the first
+  #    settled, which is every seed that needed no corridor at all.
+  for sweep in 0 ..< 3:
+    var changed = false
+    # 2..4. A tree within 12, water within 12, stone within 20.
+    if not result.withinRadius(tTree, 12):
+      let spot = result.firstGrassAtRing(6)
+      if spot.ok:
+        result.setAt(spot.x, spot.y, tTree)
+        changed = true
+    if not result.withinRadius(tWater, 12):
+      let spot = result.firstGrassAtRing(8)
+      if spot.ok:
+        result.setAt(spot.x, spot.y, tWater)
+        changed = true
+    if not result.withinRadius(tStone, 20):
+      let spot = result.firstGrassAtRing(14)
+      if spot.ok:
+        result.setAt(spot.x, spot.y, tStone)
+        changed = true
+    # 5. CONNECTIVITY. Steps 2-4 guarantee a tree, water and stone EXIST
+    #    within reach of spawn; they do not guarantee the cog can WALK to one,
+    #    and a seed whose spawn is a three-by-three island in a lake is
+    #    unwinnable however much wood is on the far shore. This step is the
+    #    design note's own promise ("every seed is completable") made true:
+    #    for each of tree, water and stone in that order, if no cell of that
+    #    kind touches the land region the cog can reach, carve an L-shaped
+    #    SAND corridor to the nearest one — horizontal first, then vertical,
+    #    never through the bedrock ring and never over the target itself.
+    #    Deterministic, integer, and a no-op on a seed that was already
+    #    connected.
+    #    (docs/PORTING-CRAFTER.md records it as a divergence from the note's
+    #    five-step post-pass.) It runs BEFORE the ore minima, and never sands
+    #    over coal, iron or diamond, so a corridor can never take the only
+    #    iron seam in the world with it.
+    for terrain in [tTree, tWater, tStone]:
+      let region = result.landRegion()
+      if result.touches(region, terrain):
+        continue
+      let target = result.nearestOf(region, terrain)
+      if not target.found:
+        continue
+      result.carve(target.fromX, target.fromY, target.x, target.y)
+      changed = true
+    if not changed:
+      break
   # 6. Global minima, coal first, then iron, then diamond.
   for (terrain, minimum) in [(tCoal, 5), (tIron, 3), (tDiamond, 1)]:
     while result.countOf(terrain) < minimum:
