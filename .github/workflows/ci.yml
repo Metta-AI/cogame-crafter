@@ -127,9 +127,10 @@ jobs:
         # so the step does not match ITSELF.
         #
         # Three files are allowed and each is deliberate:
-        #   client/chrome_common.js  - byte-identical to the starter's, which
-        #                              a harder pin (tests/test_crafter_viewer
-        #                              .nim) asserts by sha256;
+        #   client/chrome_common.js  - the starter's plus the fleet-wide
+        #                              replay transport patch, which a harder
+        #                              pin (tests/test_crafter_viewer.nim)
+        #                              asserts by sha256;
         #   src/crafter/wire_constants.nim - emits the one-line compatibility
         #                              alias that lets chrome_common.js stay
         #                              byte-identical;
