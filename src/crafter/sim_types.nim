@@ -66,7 +66,14 @@ const
   MaxNoteRunes* = 400           ## the private scratchpad, in RUNES.
   MaxPolicyLabelRunes* = 64     ## `register.policy` cap, in RUNES.
   MaxFallbackDetailRunes* = 200 ## `fallback.detail` cap, in RUNES.
-  MaxDirectiveRunes* = 4000     ## whole serialized `directive` record cap.
+  MaxDirectiveRunes* = 6000     ## whole serialized `directive` record cap.
+    ## Sized to hold a WHOLE observation: the note's `directive` record carries
+    ## `view` (the observation minus `notes`) so that the replay explains every
+    ## decision, and the observation alone measures up to ~3800 runes (the 9x9
+    ## window, the 16x16 region, the legend, 22 achievement names, up to 24
+    ## landmarks and the executed queue), which with the record's own fields
+    ## and a full 160-rune `say` reaches ~4500. At the starter's 4000 the view
+    ## was being dropped on two records in three.
   MaxPromptRunes* = 4000        ## PLAYER_PROMPT transport cap.
   MaxStopDetailRunes* = 200     ## `results.stopDetail` cap, in RUNES.
   MaxReplyBytes* = 4096         ## bytes read from the provider before parsing.

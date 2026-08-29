@@ -165,3 +165,17 @@ cell ahead is not traversable. Taken literally that walks the control policy
 into lava on the first rotation — `move` steps into any *walkable* cell and
 lava is walkable. It rotates **past** known lava instead, which is the smallest
 change that keeps it a four-line reactive control and not a suicide.
+
+### F. The `directive` record has a size cap the note does not name
+
+`MaxDirectiveRunes` (`src/crafter/sim_types.nim`) caps the whole serialised
+`directive` record. The note caps `say` (160 runes) and `notes` (400) but puts
+no bound on the record, and an unbounded record is an unbounded replay.
+
+The cap is **6000 runes**, sized so that a whole observation (≈3800 runes: the
+9 × 9 window, the 16 × 16 region, the legend, 22 achievement names, up to 24
+landmarks and the executed queue) plus a full-cap `say` fits with room to
+spare, because the note's reason for mirroring the observation into the record
+is that "the replay explains every decision". `say` shrinks first and the
+`view` is dropped only if a record cannot fit with no `say` at all — which no
+observed episode reaches.

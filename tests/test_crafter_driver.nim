@@ -249,7 +249,24 @@ suite "reply validation":
     check observation["last_plan"]["truncated"].getBool()
     check observation["last_plan"]["unreachable"].getInt() == 1
 
-suite "baseline tuning and the controls":
+  test "the record keeps the observation even with a full-cap say":
+    ## The `directive` record carries `view` "so the replay explains every
+    ## decision" (design note, §Decisions -> observation). The record cap is
+    ## sized for a whole observation plus a full-cap `say`, and `say` — never
+    ## the view — is what shrinks when something has to give.
+    var sim = startedSim(testConfig())
+    var directive = Directive(source: dsLlm)
+    directive.actions.add(Action(kind: akDo, n: 1))
+    for i in 0 ..< MaxSayRunes:
+      directive.say.add("\u{1F9E9}")
+    let observation = sim.observationJson(includeNotes = false)
+    let record = parseJson(sim.applyDirective(directive, observation))
+    check record["view"].kind == JObject
+    check record["view"] == observation
+    check record["say"].getStr().runeLen == MaxSayRunes
+    check ($record).runeLen <= MaxDirectiveRunes
+
+
   test "the shipped thresholds equal the swept pick":
     ## Item 24.
     let sweep = parseJson(readRepo("tools/ci/baseline_tuning.json"))

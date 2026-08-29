@@ -215,24 +215,35 @@ proc boundedDirectiveRecord*(directive: Directive, turn, tick, slot: int,
                              truncated: bool, dropped, unreachable: int,
                              interrupted: string, view: JsonNode): string =
   ## The serialized record, guaranteed <= MaxDirectiveRunes. `say` is the only
-  ## unbounded-in-practice field once the observation is dropped, so it is
-  ## what shrinks, and the cut still lands on a RUNE boundary. NEVER cut the
-  ## SERIALIZED string — that would emit broken JSON, which is the exact
-  ## failure the rune rule exists to prevent.
+  ## unbounded-in-practice field, so it is what shrinks, and the cut still
+  ## lands on a RUNE boundary. NEVER cut the SERIALIZED string — that would
+  ## emit broken JSON, which is the exact failure the rune rule exists to
+  ## prevent.
+  ##
+  ## `view` IS THE LAST THING TO GO, not the first: the note's whole reason for
+  ## mirroring the observation into the record is that "the replay explains
+  ## every decision", and a record with `"view": null` explains nothing. The
+  ## cap is sized so a whole observation plus a full-cap `say` fits, so this
+  ## shrinks `say` to nothing before it will drop the view at all.
   var trimmed = directive
   result = $trimmed.directiveRecord(turn, tick, slot, alias, executed,
     truncated, dropped, unreachable, interrupted, view)
   if result.runeLen <= MaxDirectiveRunes:
     return
-  result = $trimmed.directiveRecord(turn, tick, slot, alias, executed,
-    truncated, dropped, unreachable, interrupted, nil)
   var guard = 0
-  while result.runeLen > MaxDirectiveRunes and guard < 12:
+  while result.runeLen > MaxDirectiveRunes and trimmed.say.len > 0 and
+      guard < 12:
     inc guard
     trimmed.say = trimmed.say.truncateRunes(
       max(0, trimmed.say.runeLen - max(8, trimmed.say.runeLen div 2)))
     result = $trimmed.directiveRecord(turn, tick, slot, alias, executed,
-      truncated, dropped, unreachable, interrupted, nil)
+      truncated, dropped, unreachable, interrupted, view)
+  if result.runeLen <= MaxDirectiveRunes:
+    return
+  ## Only now: an observation so large that the record cannot hold it even
+  ## with no `say` at all.
+  result = $trimmed.directiveRecord(turn, tick, slot, alias, executed,
+    truncated, dropped, unreachable, interrupted, nil)
 
 proc parseRecordedActions*(node: JsonNode): seq[Primitive] =
   ## Playback: the `executed` array of a `directive` record, back into the
