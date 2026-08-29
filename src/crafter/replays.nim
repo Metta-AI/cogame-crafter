@@ -419,7 +419,11 @@ proc advanceReplayScan*(replay: var ReplayPlayer, maxTicks: int) =
   replay.scan = nil
   replay.scanDone = true
 
-proc replayScanTicksPerFrame*(sim: SimServer): int = 96
+proc replayScanTicksPerFrame*(sim: SimServer): int = 24
+  ## The background precompute walk's slice, in TICKS PER PRESENTATION FRAME.
+  ## A 64 x 64 board makes each tick heavier than the starter's pixel arena,
+  ## and this walk runs on the SAME thread as the composite: a big slice
+  ## starves the frame it is riding on.
 
 proc buildReplayKeyframes*(replay: var ReplayPlayer, initialSim: SimServer,
                            interval = ReplayKeyframeTicks) =

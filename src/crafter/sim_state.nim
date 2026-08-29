@@ -81,6 +81,9 @@ type
     ledger*: Ledger
     started*: bool
     lastPhaseWasDay*: bool
+    ripening*: seq[int]
+      ## the cells carrying a sapling ripen timer, so tick step 5 is O(few)
+      ## rather than O(4096).
 
     queue*: seq[Primitive]
     executed*: seq[Primitive]
@@ -256,6 +259,7 @@ proc startRun*(sim: var SimServer) =
   sim.started = true
   sim.lastPhaseWasDay = sim.isDaylight()
   sim.deathCause = dcNone
+  sim.ripening = @[]
   sim.cellsSeenCount = sim.knownMap.mergeVisible(sim.world, sim.cog.x,
     sim.cog.y, sim.tickCount)
 
@@ -359,6 +363,8 @@ proc stepTick*(sim: var SimServer) =
     sim.setTerrain(change.x, change.y, change.terrain)
   for entry in outcome.ripen:
     sim.world.ripenAt[entry.slot] = entry.at
+    if entry.slot notin sim.ripening:
+      sim.ripening.add(entry.slot)
 
   var flinch = false
   var died = false
@@ -440,11 +446,20 @@ proc stepTick*(sim: var SimServer) =
 
   # 5. World tick: saplings ripen, the day/night phase is recomputed, and at
   #    the first tick of a new day zombies above ground burn.
-  for slot in 0 ..< WorldCells:
-    if sim.world.cells[slot] == tSapling and sim.world.ripenAt[slot] > 0 and
-        now >= sim.world.ripenAt[slot]:
+  #    Only the cells that actually carry a ripen timer are visited — there
+  #    are never more than a handful, and a 4096-cell sweep every tick is a
+  #    cost the wasm viewer pays 1344 times for nothing.
+  var stillRipening: seq[int]
+  for slot in sim.ripening:
+    if sim.world.cells[slot] != tSapling or sim.world.ripenAt[slot] <= 0:
+      sim.world.ripenAt[slot] = 0
+      continue
+    if now >= sim.world.ripenAt[slot]:
       sim.setTerrain(slot mod WorldSize, slot div WorldSize, tRipePlant)
       sim.world.ripenAt[slot] = 0
+    else:
+      stillRipening.add(slot)
+  sim.ripening = stillRipening
   let daylight = sim.isDaylight()
   if daylight != sim.lastPhaseWasDay:
     if daylight:
@@ -498,10 +513,13 @@ proc stepTick*(sim: var SimServer) =
     died = true
 
   # 10. Visibility: mark the 9 x 9 window as seen and merge it into the known
-  #     map (last-seen terrain + seen_tick).
-  discard sim.knownMap.mergeVisible(sim.world, sim.cog.x, sim.cog.y,
-    sim.tickCount)
-  sim.cellsSeenCount = sim.knownMap.cellsSeen()
+  #     map (last-seen terrain + seen_tick). `mergeVisible` returns how many
+  #     cells were seen for the FIRST time, so `cellsSeen` is maintained
+  #     INCREMENTALLY: a fresh 4096-cell count every tick is a quarter of the
+  #     wasm viewer's per-tick budget for a number that changes by at most
+  #     nine.
+  sim.cellsSeenCount += sim.knownMap.mergeVisible(sim.world, sim.cog.x,
+    sim.cog.y, sim.tickCount)
 
   # 11. Mix the tick into gameHash (done below, after the end evaluation, so
   #     the settled phase is part of the hashed state).
@@ -610,12 +628,41 @@ proc seatName*(sim: SimServer, slot: int): string =
       return entry.name
   "Baseline (" & $(slot + 1) & ")"
 
+proc compactFeedRecord*(record: string): string =
+  ## The feed's view of a control record. The `directive` record carries the
+  ## WHOLE observation (`view`) so the replay explains every decision — three
+  ## or four kilobytes each — and `buildStateJson` ships the feed records in
+  ## EVERY chrome frame. Keeping the observation there would re-parse and
+  ## re-serialise a couple of hundred kilobytes of JSON per frame inside the
+  ## wasm module and again in the browser, which is a frozen viewer, not a
+  ## slow one. The replay bytes keep the observation; the feed does not.
+  if record.len == 0 or record[0] != '{':
+    return record
+  var node: JsonNode
+  try:
+    node = parseJson(record)
+  except CatchableError:
+    return record
+  if node.kind != JObject:
+    return record
+  ## `view` is the whole observation, `actions` and `executed` are the input
+  ## log: all three belong in the REPLAY BYTES and none of them is drawn.
+  ## `pushControlEvents` derives the `plan` event's verb list from the FULL
+  ## record before this ever runs, so nothing the feed shows is lost.
+  for key in ["view", "actions", "executed"]:
+    if node.hasKey(key):
+      node.delete(key)
+  $node
+
 proc pushFeedDirective*(sim: var SimServer, record: string) =
   ## Control records ride the replay chat stream as JSON objects and drive the
   ## broadcast feed. They are re-applied at playback into NON-HASHED fields
   ## only and can never affect the simulation.
-  sim.feedDirectives.add(record)
-  if sim.feedDirectives.len > 240:
+  sim.feedDirectives.add(compactFeedRecord(record))
+  ## The feed shows at most six rows and the endcard is state, not history:
+  ## sixteen records is more than any readout reads, and every one of them
+  ## rides in EVERY chrome frame.
+  if sim.feedDirectives.len > 16:
     sim.feedDirectives.delete(0)
 
 # ---------------------------------------------------------------------------

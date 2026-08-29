@@ -70,7 +70,6 @@ const
   WashCount = 4
   SidTerrain = 100                ## + wash * 32 + ord(Terrain)
   SidTerrainAlt = 300             ## + wash * 32 + ord(Terrain), frame 2
-  SidUnseen = 90                  ## a cell the cog has never seen
   SidCog = 60                     ## + ord(Facing), 4 chips
   SidCogSleep = 64
   SidCreature = 70                ## + ord(CreatureKind), 4 chips
@@ -386,7 +385,6 @@ proc bakeSprites() =
       if terrain in {tWater, tLava}:
         bakedSprites.add((SidTerrainAlt + wash * 32 + ord(terrain),
           washed(altChips[terrain], wash).rgbaBytes()))
-  bakedSprites.add((SidUnseen, solid(CellPx, rgba(4, 4, 6, 255)).rgbaBytes()))
   for d, dir in Facings:
     bakedSprites.add((SidCog + ord(dir),
                       cogChip(CellPx, dir, cogSources[d], false).rgbaBytes()))
@@ -496,8 +494,7 @@ proc renderBoardImage*(sim: SimServer): Image =
       let at = translate(vec2(float32(x * CellPx), float32(y * CellPx)))
       let slot = idx(x, y)
       if not sim.knownMap.cells[slot].seen:
-        result.draw(chipImages[SidUnseen], at)
-        continue
+        continue                      ## unseen is the black bed underneath
       let live = x >= origin.x and x < origin.x + ViewSize and
                  y >= origin.y and y < origin.y + ViewSize
       let wash =
@@ -565,9 +562,15 @@ proc buildSpriteProtocolUpdates*(
       y = slot div WorldSize
       live = x >= origin.x and x < origin.x + ViewSize and
              y >= origin.y and y < origin.y + ViewSize
+    ## A cell the cog has NEVER SEEN gets no object at all: the board canvas
+    ## is cleared to black under the layer, so "unseen is black" costs nothing
+    ## instead of costing a fourth of the compositor's per-frame budget. At
+    ## the first frame that is ~4000 objects the viewer does not have to
+    ## `drawImage`, which is the difference between a bundle that plays and
+    ## one that crawls.
     let sprite =
       if not sim.knownMap.cells[slot].seen:
-        SidUnseen
+        0
       else:
         let wash =
           if night: (if live: WashNight else: WashNightDim)
@@ -576,8 +579,11 @@ proc buildSpriteProtocolUpdates*(
     if nextState.sentCell[slot] == sprite:
       continue
     nextState.sentCell[slot] = sprite
-    result.addObject(OidCell + slot, x * CellPx, y * CellPx, -100, MapLayerId,
-      sprite)
+    if sprite == 0:
+      result.addDeleteObject(OidCell + slot)
+    else:
+      result.addObject(OidCell + slot, x * CellPx, y * CellPx, -100,
+        MapLayerId, sprite)
 
   ## 5. Creatures, in the stable creature order, then the cog above them.
   var drawn = 0

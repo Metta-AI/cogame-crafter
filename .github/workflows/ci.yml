@@ -377,7 +377,12 @@ jobs:
           # clock/tick readouts to KEEP ADVANCING (the cogball 0.1.4 latch
           # scar). The cert fixture is sized so its replay outlasts the soak
           # by a wide margin.
-          node tools/ci/viewer_smoke.mjs \
+          # `timeout` around the harness: page.evaluate has no deadline of
+          # its own, so a viewer that pins the main thread hangs the harness
+          # rather than failing it, and the job then burns its whole 45-minute
+          # budget telling you nothing. 300 s is four times the worst honest
+          # run.
+          timeout --signal=KILL 300 node tools/ci/viewer_smoke.mjs \
             --bundle dist/static-replay-viewer \
             --replay "${replay}" \
             --timeout 90 \
@@ -411,7 +416,7 @@ jobs:
             sleep 0.5
           done
           set +e
-          node tools/ci/viewer_smoke.mjs \
+          timeout --signal=KILL 300 node tools/ci/viewer_smoke.mjs \
             --url "http://127.0.0.1:8731/renderer_fixture.html?replay=http://127.0.0.1:8731/fixture.replay" \
             --timeout 90 \
             --out /tmp \

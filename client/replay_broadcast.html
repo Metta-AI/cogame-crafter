@@ -4556,6 +4556,8 @@ button.beat-marker {
   var cfFollow = true;        // the follow-cam, armed at load
   var cfCameraCells = 15;
   var cfZoomApplied = false;
+  var cfPanX = -1;
+  var cfPanY = -1;
 
   var CF_GLYPH_COLOUR = {
     '.': '#3f6b34', ',': '#c0a463', '~': '#2a5fd0', '#': '#7b7770',
@@ -4646,7 +4648,16 @@ button.beat-marker {
       core.setZoom(world / cfCameraCells);
       cfZoomApplied = true;
     }
-    core.panTo(cf.x * cell + cell / 2, cf.y * cell + cell / 2);
+    // panTo posts a message to the Worker that owns the board, so it is sent
+    // only when the cog actually moves — a per-frame message on a board this
+    // size is a message queue the compositor never catches up with.
+    var wantX = cf.x * cell + cell / 2;
+    var wantY = cf.y * cell + cell / 2;
+    if (wantX !== cfPanX || wantY !== cfPanY) {
+      cfPanX = wantX;
+      cfPanY = wantY;
+      core.panTo(wantX, wantY);
+    }
     var read = cfEl('zoom-read');
     if (read) {
       var across = cfCameraCells;
@@ -5031,7 +5042,24 @@ button.beat-marker {
 
   function cfFrame(s, ctx, jumped) {
     if (ctx) CTX = ctx;
-    if (jumped) { cfPlaced = {}; cfLit = {}; }
+    if (jumped) {
+      // A seek re-derives the beats, so the dedup map is reset — and the
+      // buttons it produced are REMOVED first. Without that, every jump
+      // appends another 31 markers to #scrub and a looping replay grows an
+      // unbounded pile of absolutely-positioned buttons until the main thread
+      // is doing nothing but layout.
+      var scrub = cfEl('scrub');
+      if (scrub) {
+        var stale = scrub.querySelectorAll('button.beat-marker');
+        for (var k = 0; k < stale.length; k++) {
+          stale[k].parentNode.removeChild(stale[k]);
+        }
+      }
+      cfPlaced = {};
+      cfLit = {};
+      cfPanX = -1;
+      cfPanY = -1;
+    }
     var cf = s.cf;
     if (!cf) return;
     if (cf.camera) cfCameraCells = cf.camera;
