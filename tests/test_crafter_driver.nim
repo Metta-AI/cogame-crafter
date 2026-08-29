@@ -1,7 +1,7 @@
 ## Bounded orders and legality on the scripted baselines, the driver and the
 ## reply validator — design note §Tests items 19..25.
 
-import std/[json, random, unicode, unittest]
+import std/[json, random, sets, unicode, unittest]
 import crafter/[sim, driver, directives, baselines, decide]
 import helpers
 
@@ -279,7 +279,24 @@ suite "reply validation":
     check pick["exploreSteps"].getInt() == DefaultBaselineParams.exploreSteps
     check pick["tieBreakByDistance"].getBool() ==
       DefaultBaselineParams.tieBreakByDistance
-    check sweep["grid"].len > 1
+    ## The recorded grid is the WHOLE matrix, not a hand-picked row set: every
+    ## tunable in `pick` is swept in the grid, and every cell reports every
+    ## tunable. A `pick` field that appears in no grid row was never swept.
+    check sweep["grid"].len > 100
+    for key in ["thirstThreshold", "hungerThreshold", "shelterStones",
+                "sleepTicks", "restThreshold", "exploreSteps",
+                "tieBreakByDistance"]:
+      var values: HashSet[string]
+      for cell in sweep["grid"]:
+        check cell.hasKey(key)
+        values.incl($cell[key])
+      check values.len > 1
+      ## and the pick's own value is one the sweep actually played
+      check $pick[key] in values
+    for cell in sweep["grid"]:
+      check cell.hasKey("achievements")
+      check cell.hasKey("ticks")
+      check cell.hasKey("certTicks")
 
   test "forager beats wanderer, and wanderer is not a zero":
     ## Item 25: over 100 seeds of each variant.

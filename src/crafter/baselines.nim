@@ -35,12 +35,14 @@ type
 
 const DefaultBaselineParams* = BaselineParams(
   ## THE GRID HARNESS'S PICK, NOT A GUESS. `tools/tune_baselines.nim` plays
-  ## both variants over 40 seeds for every cell of the matrix and this one
-  ## wins; `tools/ci/baseline_tuning.json` records the whole grid.
+  ## both shipped variants over seeds 1..40 for EVERY cell of the matrix —
+  ## 1296 of them — and this one wins; `tools/ci/baseline_tuning.json` is that
+  ## harness's own output, cell for cell, and `tests/test_crafter_driver.nim`
+  ## asserts these values still equal its `pick`.
   thirstThreshold: 3,
   hungerThreshold: 3,
-  shelterStones: 4,
-  sleepTicks: 8,
+  shelterStones: 2,
+  sleepTicks: 16,
   restThreshold: 5,
   exploreSteps: 2,
   tieBreakByDistance: false

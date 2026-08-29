@@ -163,14 +163,29 @@ mutation is `digest xor cellDigest(old) xor cellDigest(new)` and the two are
 genuinely equal — which is what makes the optimisation provable rather than
 merely plausible.
 
-### D. The baseline tunables are the sweep's pick, and the sweep moved two of them
+### D. The baseline tunables are the sweep's pick, and the sweep moved three of them
 
-The note's prose names "the sleep length `12`" and "the explore step count `3`"
-as the tunables. They are a **parameter object chosen by a sweep, not guessed**
-(the note's own rule), and the sweep in `tools/tune_baselines.nim` picks
-`sleepTicks = 8` and `exploreSteps = 2`; `tools/ci/baseline_tuning.json`
-records the grid and `tests/test_crafter_driver.nim` asserts the shipped
-defaults still equal it.
+The note's prose names "the thirst/hunger thresholds `3`, the shelter stone
+budget `4`, the sleep length `12`, the explore step count `3`, and whether the
+frontier score breaks ties by distance or by `(y, x)`" as the tunables. They
+are a **parameter object chosen by a sweep, not guessed** (the note's own
+rule), and the sweep in `tools/tune_baselines.nim` — 1296 cells, both shipped
+variants, seeds 1..40, every cell played — picks `exploreSteps = 2`,
+`sleepTicks = 16` and `shelterStones = 2`, leaving the two thresholds and the
+tie-break where the note puts them. `tools/ci/baseline_tuning.json` **is that
+harness's own output**, cell for cell (`--json` prints the file), and
+`tests/test_crafter_driver.nim` asserts the shipped defaults still equal its
+`pick` and that every tunable in the pick was actually swept.
+
+The pick is **constrained**, and the constraint is a shipping requirement
+rather than a thumb on the scale: the certification fixture is a `forager`
+episode on seed 42 of `standard`, and that same episode is the replay
+`docker_smoke.sh` produces and the `wasm-viewer` job plays in a browser under
+`viewer_smoke.mjs --soak 10`. A cell that scores two achievements better by
+dying at tick 400 leaves the certification replay barely outlasting the soak
+(the ecos 2026-08-23 scar), so a cell is eligible only if its cert-seed episode
+survives ≥ 900 ticks and unlocks ≥ 6 — the floor
+`tests/test_crafter_engine.nim` asserts directly.
 
 The sweep also carries a **tunable the note does not name**, `restThreshold`,
 and `forager`'s rules 1 and 4 differ in shape from the note's ladder:
