@@ -280,3 +280,26 @@ score arrays, join/auth across four seats. With `num_agents` fixed at 1 there
 is one seat and no squad, and what survived the retarget was a dozen procs over
 the sim's own state — a module boundary between them and the sim would have
 been a header for a struct with one member.
+
+### K. `replay-viewer/config.nims` adds two emscripten link flags
+
+The note's Kept table forks `replay-viewer/config.nims` for "identifiers and
+the output name only". Two link flags are added on top of that (a `diff`
+against the starter shows exactly these, plus the renames):
+
+- **`-s STACK_SIZE=8388608`** — emsdk's default is 64 KB since 3.1.27. This
+  game's `SimServer` carries the 64 × 64 world, its ripen timers and the
+  4096-cell known map, and `restoreReplayKeyframe` materialises a fresh one on
+  the stack on every seek and every banked keyframe. At the default the module
+  trapped with `RuntimeError: memory access out of bounds` inside
+  `crafter_load_replay` — caught by `tools/wasm_replay_smoke.cjs`, invisible to
+  every native shard, because natively the stack is megabytes. 8 MB is
+  emscripten's own pre-3.1.27 default.
+- **`-s INITIAL_MEMORY=33554432`** — a 1344-tick replay of a 4096-cell board is
+  the biggest thing the module has to hold, and growing linear memory from
+  16 MB during the load-time pre-scan is a stall on the frame it rides on.
+
+The starter's page is 169 cells and its replays are a fraction of the size, so
+neither flag is a correction of the starter — they are this board's dimensions.
+CI proves both: the `wasm-viewer` job steps the emitted module over the
+committed fixtures and reports `heap 32 MB`.
