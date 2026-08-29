@@ -247,16 +247,15 @@ proc foragerPlan*(sim: SimServer, params = DefaultBaselineParams): Directive =
     ## walkable cell and every open side is walkable, so "turn to face an open
     ## side" is not expressible in the action set: the only side a cog can
     ## wall off without walking out of its own hole is the one it is already
-    ## facing. It seals that one, up to `shelterStones` of them across
-    ## consecutive turns, and sleeps. Sleeping in the open is how cogs die —
-    ## and it is also the only way to reach `wake_up`.
-    var stones = 0
-    while stones < min(params.shelterStones, sim.cog.inventory[rStone]) and
+    ## facing. So this is ONE stone per turn, not the note's `min(4, stone)` in
+    ## one plan — up to `shelterStones` of them across consecutive turns — and
+    ## then it sleeps. Sleeping in the open is how cogs die, and it is also the
+    ## only way to reach `wake_up`.
+    ## (docs/PORTING-CRAFTER.md §D records this and the rest-rule condition.)
+    if params.shelterStones > 0 and sim.cog.inventory[rStone] > 0 and
         sim.world.at(front.x, front.y) in Standable and
         sim.herd.creatureAt(front.x, front.y) < 0:
       result.addPrimitive(akPlaceStone)
-      inc stones
-      break
     result.addPrimitive(akSleep, params.sleepTicks)
     finishTurn(false)
 

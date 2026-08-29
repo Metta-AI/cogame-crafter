@@ -169,6 +169,28 @@ as the tunables. They are a **parameter object chosen by a sweep, not guessed**
 records the grid and `tests/test_crafter_driver.nim` asserts the shipped
 defaults still equal it.
 
+The sweep also carries a **tunable the note does not name**, `restThreshold`,
+and `forager`'s rules 1 and 4 differ in shape from the note's ladder:
+
+- **Rule 1 (under attack)** — the note's middle branch is "if `stone >= 1` and
+  the cell between them is placeable: `move` to face it, `place_stone`". The
+  implementation fights instead: `do` × 3 if the cog already faces the
+  hostile, else `move` toward it (which only turns, because a creature blocks
+  the step) and `do` × 3, else back away by BFS to the reachable known cell
+  farthest from it. Two of the twenty-two achievements (`defeat_zombie`,
+  `defeat_skeleton`) are only reachable by fighting, and a baseline that walls
+  itself in at Chebyshev 2 never unlocks either.
+- **Rule 4 (night shelter)** — fires on
+  `(not daylight and energy <= restThreshold) or energy <= 2`, where the note's
+  rule 4 has no energy condition at all. Sleeping at every nightfall regardless
+  of energy costs a `forager` most of the dark half of the episode; the energy
+  condition is what makes it a REST rule. It also emits **one** `place_stone`,
+  not the note's `min(4, stone)`: `move_<dir>` steps into a walkable cell and
+  every open side is walkable, so "turn to face an open side" is not
+  expressible in the action set — the only side a cog can wall off without
+  walking out of its own hole is the one it is already facing. It seals that
+  one, and up to `shelterStones` of them across consecutive turns.
+
 ### E. `wanderer` rotates past lava rather than blindly
 
 The note describes `wanderer` as rotating the facing clockwise whenever the
