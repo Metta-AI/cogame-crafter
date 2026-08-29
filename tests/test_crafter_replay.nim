@@ -237,6 +237,30 @@ suite "replay":
       check played.mismatch == -1
     check swept >= 1
 
+  test "half speed is a replay-only crawl":
+    ## The fleet-wide 1/2x replay speed: command '5' selects
+    ## ReplayHalfSpeedIndex, the chrome shows 0.5, and the step budget spends
+    ## one tick every OTHER frame (halfPhase parity) outside lulls.
+    var replay = ReplayPlayer()
+    replay.speedIndex = 0
+    applySpeedCommand(replay.speedIndex, '5')
+    check replay.speedIndex == ReplayHalfSpeedIndex
+    check replay.replayDisplaySpeed() == 0.5
+    ## The integer speed clamps to 1x at 1/2x (live loop safety).
+    check replay.replaySpeed() == 1
+    replay.skipLulls = false
+    replay.halfPhase = false
+    check replay.replayStepBudget(0) == 0
+    replay.halfPhase = true
+    check replay.replayStepBudget(0) == 1
+    applySpeedCommand(replay.speedIndex, '+')
+    check replay.speedIndex == 0
+    applySpeedCommand(replay.speedIndex, '-')
+    check replay.speedIndex == ReplayHalfSpeedIndex
+    ## 1/2x is the floor.
+    applySpeedCommand(replay.speedIndex, '-')
+    check replay.speedIndex == ReplayHalfSpeedIndex
+
   test "the beat timeline and the lull map draw at full width on frame one":
     let path = dir / "beats.replay"
     discard recordEpisode(edDeath, path)

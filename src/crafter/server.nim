@@ -399,7 +399,7 @@ proc runServerLoop*() =
           sim, appState.globalViewers[websocket], next,
           sim.tickCount, true, 1, sim.effectiveMaxTicks(), false, false, -1)
         appState.globalViewers[websocket] = next
-        packet.addChrome(sim.buildStateJson(events, true, 1,
+        packet.addChrome(sim.buildStateJson(events, true, 1.0,
           sim.effectiveMaxTicks(), false, false, -1, -1))
         broadcastPacket(packet, websocket)
 

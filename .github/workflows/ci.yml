@@ -127,9 +127,10 @@ jobs:
         # so the step does not match ITSELF.
         #
         # Three files are allowed and each is deliberate:
-        #   client/chrome_common.js  - byte-identical to the starter's, which
-        #                              a harder pin (tests/test_crafter_viewer
-        #                              .nim) asserts by sha256;
+        #   client/chrome_common.js  - the starter's plus the fleet-wide
+        #                              replay transport patch, which a harder
+        #                              pin (tests/test_crafter_viewer.nim)
+        #                              asserts by sha256;
         #   src/crafter/wire_constants.nim - emits the one-line compatibility
         #                              alias that lets chrome_common.js stay
         #                              byte-identical;
@@ -157,8 +158,13 @@ jobs:
         # A GameVersion is claimed across BRANCHES, so the check only means
         # anything against a base ref. On a push to main there is none, and
         # the version sweep in tests/test_crafter_replay.nim is what holds.
+        # The default depth-1 checkout has no base ref to compare against, so
+        # fetch it here rather than deepening every job's checkout.
         if: github.event_name == 'pull_request'
-        run: ./tools/ci/check_gameversion.sh "origin/${{ github.base_ref }}"
+        run: |
+          git fetch --no-tags --depth=1 origin \
+            "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+          ./tools/ci/check_gameversion.sh "origin/${{ github.base_ref }}"
 
       - name: Check out the starter the broadcast page is derived from
         # The page is DERIVED from coworld-ctf's own `replay_broadcast.html`

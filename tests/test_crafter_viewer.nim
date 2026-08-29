@@ -5,9 +5,13 @@ import crafter/[sim, labels, broadcast]
 import helpers
 
 const
-  ## The starter's chrome, byte-for-byte. Not edited, not reformatted.
+  ## The starter's chrome plus the fleet-wide replay transport patch (the
+  ## 0.5x speed chip and this game's own speed table — the starter's
+  ## value-keyed map was built for CTF's [1,2,3,4,8,16] and sent the wrong
+  ## command for every crafter chip past 2x). Otherwise NOT edited, NOT
+  ## reformatted.
   ChromeCommonSha256 =
-    "7ace7287e0d19bf0fddb2362c55e4d76dfb44adcd4fbc8d1743b0557ced72f7c"
+    "4c95c4e75418447da0612e3e2249efcf2a4560c521b36a775439d1b693737bd3"
   ## The exact ids the design note lists as REMOVED, and the exact ids it
   ## lists as KEPT.
   RemovedIds = ["povBadge", "fpv-hp", "fpv-gear", "fpv-map", "fpv-map-canvas"]
@@ -92,9 +96,9 @@ suite "crafter viewer":
   let page = readRepo("client/replay_broadcast.html")
   let core = readRepo("client/broadcast_core.js")
 
-  test "35. chrome_common.js is BYTE-IDENTICAL to the starter's":
+  test "35. chrome_common.js is the starter's plus the transport patch":
     let chrome = readRepo("client/chrome_common.js")
-    check chrome.len == 40022
+    check chrome.len == 40039
     check sha256Hex(chrome) == ChromeCommonSha256
 
   test "36. the broadcast page is the starter's plus an appended block":
