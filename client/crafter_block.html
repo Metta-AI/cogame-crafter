@@ -305,6 +305,7 @@ button.beat-marker {
   var cfFollow = true;        // the follow-cam, armed at load
   var cfCameraCells = 15;
   var cfZoomApplied = false;
+  var cfZoomTries = 0;
   var cfPanX = -1;
   var cfPanY = -1;
 
@@ -393,7 +394,13 @@ button.beat-marker {
     var cell = cf.cell || 24;
     if (!cfFollow) return;
     var t = core.getTransform ? core.getTransform() : null;
-    if (!cfZoomApplied || (t && t.zoom === 1)) {
+    // The transform lives a thread away (the board is drawn on an
+    // OffscreenCanvas in a Worker), so `zoom === 1` may simply mean the
+    // Worker has not echoed one back yet. Re-applying is cheap, but it is a
+    // postMessage: cap the retries so a core that never reports a transform
+    // costs a handful of messages rather than one per frame forever.
+    if (!cfZoomApplied || (t && t.zoom === 1 && cfZoomTries < 30)) {
+      cfZoomTries++;
       core.setZoom(world / cfCameraCells);
       cfZoomApplied = true;
     }
@@ -808,6 +815,7 @@ button.beat-marker {
       cfLit = {};
       cfPanX = -1;
       cfPanY = -1;
+      cfZoomTries = 0;
     }
     var cf = s.cf;
     if (!cf) return;
@@ -884,6 +892,7 @@ button.beat-marker {
       cfFollow = true;
       cfCameraCells = 15;
       cfZoomApplied = false;
+      cfZoomTries = 0;
     }
   };
 })();

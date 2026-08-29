@@ -1,6 +1,6 @@
 version     = "0.1.0"
 author      = "Softmax"
-description = "One cog, five partially observed 13x13 gridworld tasks, and a sentence telling it what to do."
+description = "One cog alone in a seeded 64x64 wilderness it can see nine cells of, and twenty-two things it has never done."
 license     = "MIT"
 
 srcDir = "src"

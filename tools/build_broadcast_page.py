@@ -33,6 +33,58 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # shows 15 of them, so this board genuinely is larger than the frame, which is
 # exactly the condition the pin names.
 MARKUP_REMOVALS = [
+    # #viewpanel is KEPT, but it is MOVED to the end of the stage, after
+    # #scrub. `tools/ci/viewer_smoke.mjs` finds the scrubber with the selector
+    # list `#scrub, #seek, input[type="range"]` and takes `.first()`, which
+    # CSS resolves in DOCUMENT ORDER — so with the zoom slider ahead of the
+    # scrubber the harness's scrub readouts click the ZOOM BAR instead. At the
+    # 100 % click that is `setZoom(maxZoom)`, and a software canvas asked to
+    # blit a 1536x1536 surface into a ~9600x9600 destination is where CI runs
+    # 33225446565 and 33226980062 both went to die. The panel is absolutely
+    # positioned, so moving its markup changes nothing on screen.
+    ('''    <!-- View controls: zoom the board with buttons/slider/keys/pinch (never a
+         plain scroll — that belongs to the page), and once zoomed, a minimap
+         with a white view box says which part of the board you are holding.
+         Click or drag the minimap to jump the view there. -->
+    <div id="viewpanel">
+      <div id="minimap" title="Click or drag to move the view">
+        <canvas id="minimap-canvas"></canvas>
+        <span class="mm-cap">View</span>
+      </div>
+      <div id="zoombar" role="group" aria-label="Board zoom">
+        <button class="zbtn" id="zoom-out" title="Zoom out (x)" aria-label="Zoom out">&minus;</button>
+        <input id="zoom-slider" type="range" min="0" max="1000" step="1" value="0"
+               aria-label="Board zoom" aria-valuetext="Fitted">
+        <button class="zbtn" id="zoom-in" title="Zoom in (z)" aria-label="Zoom in">+</button>
+        <span id="zoom-read" aria-live="off">FIT</span>
+      </div>
+    </div>
+''', '''    <!-- CRAFTER: #viewpanel is KEPT and MOVED below #scrub (see
+         tools/build_broadcast_page.py). -->
+'''),
+    ('''  <div id="status">connecting</div>''',
+     '''  <!-- View controls: zoom the board with buttons/slider/keys/pinch (never a
+       plain scroll — that belongs to the page), and once zoomed, a minimap
+       with a white view box says which part of the board you are holding.
+       Click or drag the minimap to jump the view there.
+       CRAFTER: MOVED here from above the scorebug so that #scrub is the first
+       element matching the viewer smoke's `#scrub, #seek, input[type=range]`
+       selector. Absolutely positioned, so nothing moves on screen. -->
+  <div id="viewpanel">
+    <div id="minimap" title="Click or drag to move the view">
+      <canvas id="minimap-canvas"></canvas>
+      <span class="mm-cap">View</span>
+    </div>
+    <div id="zoombar" role="group" aria-label="Board zoom">
+      <button class="zbtn" id="zoom-out" title="Zoom out (x)" aria-label="Zoom out">&minus;</button>
+      <input id="zoom-slider" type="range" min="0" max="1000" step="1" value="0"
+             aria-label="Board zoom" aria-valuetext="Fitted">
+      <button class="zbtn" id="zoom-in" title="Zoom in (z)" aria-label="Zoom in">+</button>
+      <span id="zoom-read" aria-live="off">FIT</span>
+    </div>
+  </div>
+
+  <div id="status">connecting</div>'''),
     # #povBadge: with one seat there is nothing to select
     ("""    <div id="povBadge">👁 POV lens — click to clear</div>
 """, """    <!-- CRAFTER: the POV badge is REMOVED — one seat, nothing to select. -->

@@ -130,7 +130,7 @@ suite "crafter viewer":
       check proc0 in core
     check "function pushFeed(row)" in page
     ## The page is DERIVED, and the block region must still BE
-    ## client/crafter_block.html — the file the AGENTS guide says to edit.
+    ## client/crafter_block.html — the file README.md points a contributor at.
     ## Nothing in CI can re-derive the page (the runner has no starter
     ## checkout), so this is what catches a hand-edit of the derived artifact
     ## that never went back into its source.

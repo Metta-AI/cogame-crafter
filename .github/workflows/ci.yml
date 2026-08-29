@@ -336,6 +336,20 @@ jobs:
       # Playwright is pinned to 1.55.0 in BOTH places -- the npm module and the
       # browser download. Bump them together or the browser 404s.
       # -----------------------------------------------------------------
+      # wasm32-only failures -- integer traps on arithmetic that is silently
+      # fine on 64-bit, and 2 GB address-space exhaustion -- are invisible to
+      # the native shards, and this game's 1344-tick, 4096-cell replays are
+      # the biggest thing the module has to hold. This runs the EXACT emitted
+      # module, headless in node, against the committed fixture.
+      - name: Step the emitted wasm module over the committed fixtures
+        run: |
+          set -euo pipefail
+          for fixture in tests/replays/*.replay; do
+            echo "== ${fixture}"
+            timeout --signal=KILL 180 node tools/wasm_replay_smoke.cjs \
+              dist/static-replay-viewer "${fixture}" 300
+          done
+
       - name: Download the smoke replay
         uses: actions/download-artifact@v4
         with:
