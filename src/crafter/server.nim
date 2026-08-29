@@ -73,7 +73,6 @@ type
     playerViewers: Table[WebSocket, board.PlayerViewerState]
     playerSlots: Table[WebSocket, int]
     playerTokens: Table[WebSocket, string]
-    playerNames: Table[WebSocket, string]
     chatMessages: Table[WebSocket, string]
     inputMasks: Table[WebSocket, uint8]
     pressedMasks: Table[WebSocket, uint8]
@@ -410,10 +409,12 @@ proc runServerLoop*() =
       for websocket, slot in appState.playerSlots.pairs:
         if joinedSlots.getOrDefault(slot, false):
           continue
-        let name = appState.playerNames.getOrDefault(websocket, "")
         let token = appState.playerTokens.getOrDefault(websocket, "")
-        let seatName = if name.len > 0: name else: "seat-" & $slot
-        if sim.addPlayer(seatName, slot, token, trusted = true) >= 0:
+        ## A join carries no name — the seat's REAL policy name is only known
+        ## once it REGISTERS, and the registration branch below is what writes
+        ## it into the roster and into the replay's join record. Until then the
+        ## seat is a placeholder.
+        if sim.addPlayer("seat-" & $slot, slot, token, trusted = true) >= 0:
           joinedSlots[slot] = true
       var handled: seq[WebSocket]
       for websocket, text in appState.chatMessages.pairs:
