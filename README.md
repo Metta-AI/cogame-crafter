@@ -1,0 +1,3 @@
+# cogame-crafter
+
+bootstrap
