@@ -341,3 +341,19 @@ finish inside it (the ecos 2026-08-23 scar) — and 40 s of playback clears a
 10 s soak four times over. Halving the tick rate to reach exactly 10 ticks/s
 would mean a fractional speed chip in a transport that is otherwise the
 starter's verbatim.
+
+### N. The provider ENVELOPE is read up to 16384 bytes; the reply TEXT is capped at 4096 runes
+
+The note's §Reply schema caps the "whole reply" at "≤ 4096 bytes read from the
+provider before parsing". Taken as the envelope that cap is unusable: what
+comes back from the provider is a JSON document wrapping the model's text in
+`id` / `model` / `usage` / `content` fields, and cutting it at 4096 bytes makes
+`parseJson` raise on every non-trivial reply — a `parse_error` fallback on
+every turn, which is the opposite of what the cap is for.
+
+So `src/crafter/llm.nim` reads up to **4 × `MaxReplyBytes` = 16384 bytes** of
+the envelope before parsing, and the model's own text — the only part that
+reaches the replay — is capped at `MaxReplyBytes` **runes** afterwards, on a
+rune boundary. Nothing byte-truncated ever reaches a record: a cut envelope
+raises inside `parseJson`, the caller turns that into a `parse_error` fallback,
+and the rune cap is what the truncation tests pin.
