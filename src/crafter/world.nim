@@ -156,10 +156,16 @@ proc oreHost(world: World, seed: int): int =
         best = m
         result = idx(x, y)
 
-proc landRegion*(world: World): array[WorldCells, bool] =
+proc landRegion*(world: World): seq[bool] =
+  ## HEAP, not stack. A 4096-entry array returned by value — and then passed
+  ## by value into `touches` and `nearestOf` — is twelve kilobytes of
+  ## wasm32 stack for a flood fill, and the emscripten stack is 64 KB by
+  ## default. Every bulk buffer in this module lives on the heap for that
+  ## reason.
   ## The cells the cog can stand on, flood-filled from spawn over grass, sand
   ## and path. Lava is excluded: it is walkable and instantly fatal, so a
   ## route through it is not a route.
+  result = newSeq[bool](WorldCells)
   var queue = @[idx(SpawnX, SpawnY)]
   result[idx(SpawnX, SpawnY)] = true
   var head = 0
@@ -180,7 +186,7 @@ proc landRegion*(world: World): array[WorldCells, bool] =
       result[idx(nx, ny)] = true
       queue.add(idx(nx, ny))
 
-proc touches*(world: World, region: array[WorldCells, bool],
+proc touches*(world: World, region: openArray[bool],
               terrain: Terrain): bool =
   ## Is some cell of `terrain` 4-adjacent to (or inside) the reachable land?
   for slot in 0 ..< WorldCells:
@@ -199,7 +205,7 @@ proc touches*(world: World, region: array[WorldCells, bool],
         return true
   false
 
-proc nearestOf*(world: World, region: array[WorldCells, bool],
+proc nearestOf*(world: World, region: openArray[bool],
                 terrain: Terrain): tuple[found: bool; x, y, fromX, fromY: int] =
   ## The cell of `terrain` closest to the reachable land, and the land cell it
   ## is closest to. Ties by ascending (y, x) on both sides, so the pick is
@@ -405,20 +411,27 @@ proc traversable*(map: KnownMap, x, y: int): bool =
   entry.seen and entry.terrain in {tGrass, tSand, tPath}
 
 type BfsResult* = object
-  reached*: array[WorldCells, bool]
-  parent*: array[WorldCells, int32]
-  dist*: array[WorldCells, int32]
+  ## HEAP, not stack: three 4096-entry arrays are thirty-six kilobytes
+  ## returned by value, and the emscripten stack is 64 KB. The sim module is
+  ## compiled to wasm32 as well as natively, and a buffer that is merely large
+  ## natively is fatal there.
+  reached*: seq[bool]
+  parent*: seq[int32]
+  dist*: seq[int32]
 
 proc bfs*(map: KnownMap, sx, sy: int, blocked: openArray[int] = []): BfsResult =
   ## Breadth-first from the cog's cell; edges are 4-adjacency in the fixed
   ## order up, right, down, left, so the path is UNIQUE for a given known map.
   ## `blocked` carries the cells of currently-known hostiles.
+  result.reached = newSeq[bool](WorldCells)
+  result.parent = newSeq[int32](WorldCells)
+  result.dist = newSeq[int32](WorldCells)
   for i in 0 ..< WorldCells:
     result.parent[i] = -1
     result.dist[i] = -1
   if not inBounds(sx, sy):
     return
-  var wall: array[WorldCells, bool]
+  var wall = newSeq[bool](WorldCells)
   for slot in blocked:
     if slot >= 0 and slot < WorldCells:
       wall[slot] = true

@@ -32,6 +32,15 @@ switch("threads", "off")
 # runtime in a Dedicated Worker, and node so CI can smoke-run that EXACT emitted
 # module (tools/wasm_replay_smoke.cjs) — wasm32-only failures (int overflow traps,
 # 2 GB address-space exhaustion) are invisible to the native 64-bit tests.
+# STACK_SIZE matters too, and it is NOT the emscripten default (64 KB since
+# emsdk 3.1.27). This game's `SimServer` carries the 64x64 world, its ripen
+# timers and the 4096-cell known map — about 60 KB of object — and
+# `restoreReplayKeyframe` materialises a fresh one on the stack every time the
+# viewer seeks or the precompute walk banks a keyframe. At the default the
+# module trapped with `RuntimeError: memory access out of bounds` inside
+# `crafter_load_replay` (caught by tools/wasm_replay_smoke.cjs, invisible to
+# every native shard, because natively the stack is megabytes). 8 MB is the
+# emscripten pre-3.1.27 default and costs nothing but address space.
 # ABORTING_MALLOC matters: with -d:useMalloc Nim never checks malloc for
 # nil (that path is `when defined(zephyr)`-only), and wasm32 has no memory
 # protection, so a failed allocation would otherwise write the seq header
@@ -46,6 +55,8 @@ switch(
   --preload-file {rootDir / "data"}@data
   -O2
   -s ALLOW_MEMORY_GROWTH
+  -s STACK_SIZE=8388608
+  -s INITIAL_MEMORY=33554432
   -s ABORTING_MALLOC=1
   -s FILESYSTEM=1
   -s ENVIRONMENT=web,worker,node
