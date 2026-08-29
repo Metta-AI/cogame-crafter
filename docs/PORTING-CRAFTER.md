@@ -212,3 +212,17 @@ spare, because the note's reason for mirroring the observation into the record
 is that "the replay explains every decision". `say` shrinks first and the
 `view` is dropped only if a record cannot fit with no `say` at all — which no
 observed episode reaches.
+
+### G. The derived event enum has a twenty-second kind: `budget`
+
+The note's §Record and event vocabulary B is "a closed enum of twenty kinds,
+plus `end`", and its §Tests item 48 asks for exactly twenty-one. This repo
+emits **twenty-two**: the twenty-one plus `budget` `{turn, remaining_s}`,
+derived from the `budget_guard` chat record the note's §Record vocabulary A
+already lists.
+
+The record exists in the note; without a derived event for it the feed has no
+way to say *why* every remaining turn is suddenly scripted, and phase 60 reads
+the same fact out of the replay either way. `budget` is not a beat — it does
+not reach the scrubber — and `tests/test_crafter_events.nim` pins the emitted
+set at exactly these twenty-two.
