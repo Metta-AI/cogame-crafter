@@ -131,3 +131,34 @@ The episode ends at the first of **death**, **all twenty-two unlocked**, the
 `death | allUnlocked | turnCap | tickCap | wallClock | fault`, and
 `results.deathCause` is
 `zombie | skeleton | arrow | lava | starvation | thirst | exhaustion | none`.
+
+## Scoring
+
+    scores[0] = 10000 * achievementsUnlocked + survivalTicks
+
+One more achievement is worth 10 000 and the largest possible survival term is
+1344, so achievements always dominate and survival is purely the tie-break.
+`results.win[0]` is `achievementsUnlocked >= parAchievements` (8 in `standard`,
+6 in `longnight`) — a "did the cog clear the bar" flag, not a duel — and
+`results.winner` is `0` when it is true and `null` otherwise.
+
+**The paper's geometric mean, and why it is not this number.** Crafter's
+published score
+
+    S = exp( (1/22) * sum_i ln(1 + 100 * p_i) ) - 1
+
+uses `p_i`, the **success rate** of achievement `i` across a *run of episodes*.
+A single episode has no success rate — only a boolean per achievement — so `S`
+is a **cross-episode aggregate** and cannot be an episode's score. This coworld
+therefore reports the integer above per episode, and also reports the raw
+material `S` needs: `achievementUnlocked[22]` and `achievementTick[22]`, in
+canonical order. `tools/crafter_score.py` computes `S` over a directory of
+`results.json` files:
+
+```bash
+python3 tools/crafter_score.py path/to/results/
+```
+
+**It needs at least ten episodes to mean anything, and it is NOT what the
+ladder ranks** — the ladder ranks `scores[0]`. `docs/ACHIEVEMENTS.md` carries
+the same statement beside the achievement table.
