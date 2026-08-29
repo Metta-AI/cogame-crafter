@@ -97,6 +97,21 @@ suite "the manifest pins":
     check m["game"]["runnable"]["type"].getStr() == "game"
     check m["game"]["runnable"]["run"][0].getStr() == "/bin/crafter"
 
+  test "the runnable and every declared player resolve to this repo":
+    ## `source-resolves` is a certification prerequisite and it reads
+    ## `runnable.source_url`; the starter's own manifest carries it on the game
+    ## runnable as well as on each player, and a 404 there fails the upload
+    ## after a fully green certify.
+    let runnable = m["game"]["runnable"]
+    check runnable["source_url"].getStr() ==
+      "https://github.com/Metta-AI/cogame-crafter/tree/main"
+    ## The image lives under `runnable`, never on `game` itself.
+    check not m["game"].hasKey("image")
+    for player in m["player"]:
+      check player["type"].getStr() == "player"
+      check player["source_url"].getStr().startsWith(
+        "https://github.com/Metta-AI/cogame-crafter")
+
   test "game.name equals the slug and the secret namespace":
     ## The commons-family 2026-08-24 scar: an underscore in `game.name` and
     ## the upload is rejected after a fully green certify.
@@ -199,17 +214,61 @@ suite "the manifest pins":
     check policies[1]["player"].getStr() ==
       "ply_bac48eb1-662e-44f8-973d-f3e016dccf5d"
 
-  test "the manifest loads under the installed CLI, when there is one":
-    ## Item 38. `coworld` is not installed in the sandbox or in the `test`
-    ## job's image, so this is a no-op there and a real check wherever the CLI
-    ## exists; `coworld-release.yml`'s own build step is the hard gate.
+  test "the manifest loads: the placeholders resolve and the shape validates":
+    ## Item 38. `coworld` is not installed on the `test` runner and `ci.yml`
+    ## never installs it, so a check that only runs UNDER THE CLI runs
+    ## nowhere — which left the shipped `game.runnable` asserted by nothing
+    ## that executes. So the substantive half below runs EVERYWHERE: it
+    ## substitutes the image placeholder exactly the way `coworld build` does,
+    ## re-parses the result, and asserts the structure
+    ## `validate_upload_manifest` requires. The CLI load still runs wherever
+    ## the CLI exists, and `coworld-release.yml`'s own build step is the hard
+    ## gate.
+    let raw = readRepo("coworld_manifest_template.json")
+    ## EVERY placeholder in the template is one `coworld build` substitutes.
+    ## An unsubstituted `{{...}}` reaches the platform verbatim and the game
+    ## is unschedulable (lantern 0.1.0).
+    var placeholders: HashSet[string]
+    var index = 0
+    while true:
+      let start = raw.find("{{", index)
+      if start < 0:
+        break
+      let stop = raw.find("}}", start)
+      check stop > start
+      placeholders.incl(raw[start .. stop + 1])
+      index = stop + 2
+    check placeholders == ["{{CRAFTER_IMAGE}}"].toHashSet()
+
+    let resolved = parseJson(raw.replace("{{CRAFTER_IMAGE}}",
+                                         "coworld-crafter:ci"))
+    check resolved["game"]["runnable"]["image"].getStr() == "coworld-crafter:ci"
+    for player in resolved["player"]:
+      check player["image"].getStr() == "coworld-crafter:ci"
+    for key in ["$schema", "tags", "episode_timeout_minutes", "game", "player",
+                "variants", "certification"]:
+      check resolved.hasKey(key)
+    for key in ["name", "owner", "description", "runnable", "replay_viewer",
+                "protocols", "docs", "config_schema", "results_schema"]:
+      check resolved["game"].hasKey(key)
+    for key in ["type", "image", "run", "source_url", "env"]:
+      check resolved["game"]["runnable"].hasKey(key)
+    for player in resolved["player"]:
+      for key in ["id", "type", "name", "description", "image", "run",
+                  "source_url", "resources"]:
+        check player.hasKey(key)
+    for variant in resolved["variants"]:
+      check toSeq(variant.keys) == @["id", "name", "description",
+                                     "game_config"]
+
     let probe = execCmdEx("python3 -c 'import coworld' 2>/dev/null")
-    if probe.exitCode != 0:
-      skip()
-    else:
+    if probe.exitCode == 0:
       let run = execCmdEx("python3 -c " & quoteShell(
         "from coworld.manifest import validate_upload_manifest;" &
         "import json,sys;" &
         "validate_upload_manifest(json.load(open(sys.argv[1])))") & " " &
         quoteShell(repoRoot() / "coworld_manifest_template.json"))
       check run.exitCode == 0
+    else:
+      echo "        (no `coworld` CLI here; the structural half above is what ",
+        "ran)"
