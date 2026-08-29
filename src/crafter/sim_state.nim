@@ -326,7 +326,13 @@ proc installPlan*(sim: var SimServer, primitives: seq[Primitive],
 # ---------------------------------------------------------------------------
 
 proc recordUnlock(sim: var SimServer, a: Achievement) =
-  if sim.ledger.recordAchievement(a, sim.tickCount):
+  ## The stamp is the RUN-RELATIVE tick, the same clock `survivalTicks` and
+  ## `results.finalTick` are on. On the absolute clock every unlock would sit
+  ## `gameStartTick` past the end of its own episode — with a production lobby
+  ## (`lobbyJoinTimeoutTicks: 2400`) by hundreds of ticks — and the viewer's
+  ## endcard, which derives each row's DAY from `tick / (maxTicks / day)`,
+  ## would place them all late.
+  if sim.ledger.recordAchievement(a, sim.runTick()):
     sim.emit(SimEvent(kind: evAchievement, i: ord(a),
       n: sim.ledger.count, m: AchievementCount, a: $a))
 

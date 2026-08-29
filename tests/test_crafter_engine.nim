@@ -82,6 +82,42 @@ suite "an episode end to end":
     check sim.daysSurvived >= 1
     check sim.damageTaken >= 1
 
+  test "achievementTick is on the RUN clock, the one finalTick is on":
+    ## The lobby is a wall-clock wait for a container to dial in, not
+    ## simulation: `survivalTicks` / `finalTick` and every clocked rule are
+    ## run-relative, so an unlock stamped with the ABSOLUTE tick sits
+    ## `gameStartTick` past the end of its own episode and the viewer's endcard
+    ## dates every row late.
+    var config = testConfig()
+    config.lobbyJoinTimeoutTicks = 240
+    var sim = initSimServer(config)
+    while sim.phase == Lobby:
+      sim.step()
+    check sim.gameStartTick == 240
+    var turns = 0
+    while sim.phase == Playing and turns < 400:
+      if sim.waitingForPlan():
+        if not sim.beginTurn():
+          break
+        inc turns
+        discard sim.applyDirective(scriptedPlan(sim, blForager), nil)
+      sim.stepTick()
+      sim.pending.setLen(0)
+    if sim.phase == Playing:
+      sim.finish(erComplete, edTurnCap)
+    let results = parseJson(sim.runResultsJson())
+    check results["achievementsUnlocked"].getInt() >= 1
+    var earliest = int.high
+    for i in 0 ..< AchievementCount:
+      let tick = results["achievementTick"][i].getInt()
+      if tick < 0:
+        continue
+      check tick <= results["finalTick"].getInt()
+      earliest = min(earliest, tick)
+    ## Discriminating: on the absolute clock nothing could be stamped before
+    ## the lobby ran out.
+    check earliest < sim.gameStartTick
+
   test "no seat can stall, and the failure payload is the closed schema":
     ## Item 28.
     var config = testConfig()
