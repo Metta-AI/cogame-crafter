@@ -19,13 +19,27 @@ suite "world generation":
     c.runTurn(@[Action(kind: akMove, dir: fUp, n: 6),
                 Action(kind: akDo, n: 4)])
     let reference = generate(config.seed, config.mountainThreshold)
-    for slot in 0 ..< WorldCells:
-      ## The cog mines and places, so the LIVE grids diverge; the generator's
-      ## output for the seed does not.
-      check generate(config.seed, config.mountainThreshold).cells[slot] ==
-        reference.cells[slot]
-    check a.config.seed == b.config.seed
-    check c.config.seed == reference.cells.len div WorldCells * config.seed
+    ## THREE DIFFERENT POLICY BEHAVIOURS, ONE GENERATOR OUTPUT. The three sims
+    ## really did play, and really did play differently — their LIVE grids
+    ## differ — and yet regenerating from each one's own config reproduces the
+    ## reference cell for cell.
+    check a.primitivesExecuted > 0
+    check b.primitivesExecuted > 0
+    check c.primitivesExecuted > 0
+    check a.world.cells != b.world.cells
+    check a.world.cells != c.world.cells
+    for played in [a, b, c]:
+      let regenerated = generate(played.config.seed,
+                                 played.config.mountainThreshold)
+      var identical = 0
+      var touched = 0
+      for slot in 0 ..< WorldCells:
+        ## The cog mines and places, so the LIVE grids diverge; the
+        ## generator's output for the seed does not.
+        if regenerated.cells[slot] == reference.cells[slot]: inc identical
+        if played.world.cells[slot] != reference.cells[slot]: inc touched
+      check identical == WorldCells
+      check touched <= 200          ## only the cells the cog changed
     var other = testConfig(seed = 43)
     let elsewhere = generate(other.seed, other.mountainThreshold)
     var differences = 0
