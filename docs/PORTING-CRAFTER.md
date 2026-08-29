@@ -303,3 +303,20 @@ The starter's page is 169 cells and its replays are a fraction of the size, so
 neither flag is a correction of the starter — they are this board's dimensions.
 CI proves both: the `wasm-viewer` job steps the emitted module over the
 committed fixtures and reports `heap 32 MB`.
+
+### L. `#viewpanel` is kept, unmodified — and moved in the markup
+
+The note's §Viewer keeps `#viewpanel`, its children, its CSS and the page's
+`core.attachMinimap($('minimap-canvas'))` call "all kept, unmodified". They
+are. What moved is the panel's **position in the document**: it is now a
+sibling of `#status`, after `#scrub`, instead of sitting above `#mmwarn`.
+
+`tools/ci/viewer_smoke.mjs` finds the scrubber with the selector list
+`#scrub, #seek, input[type="range"]` and takes `.first()`, which CSS resolves
+in DOCUMENT ORDER. With `#zoom-slider` ahead of `#scrub` the harness's scrub
+readouts drove the ZOOM BAR: at the 100 % click that is `setZoom(maxZoom)`, and
+a software canvas asked to blit a 1536 × 1536 surface into a ~9600 × 9600
+destination is where CI runs 33225446565 and 33226980062 both died. The panel
+is `position: absolute`, so its markup position has no effect on screen, and
+the move is made by `tools/build_broadcast_page.py` as an enumerated edit —
+`ci.yml` re-derives the page against the pinned starter on every push.
