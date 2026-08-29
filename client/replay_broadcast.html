@@ -4367,8 +4367,13 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
    inside the board region's letterbox gutter — never inside var(--band). */
 #cf-checklist {
   position: absolute;
-  right: calc(8 * var(--u));
-  top: calc(var(--topband, 0px) + 8 * var(--u));
+  /* THE LEFT GUTTER. A 360 x 203 embed letterboxes a square board to
+     120 x 120 and leaves two ~120 px gutters; this game uses both — the
+     checklist here, and #viewpanel's minimap above the 9x9 inset on the
+     right. Anchored from --topband downward, so nothing ever enters the
+     transport band. */
+  left: calc(8 * var(--u));
+  top: calc(var(--topband, 0px) + 108 * var(--u));
   z-index: 5;
   display: grid;
   grid-template-columns: repeat(2, auto);
@@ -4406,6 +4411,15 @@ body[data-noviewpanel] #viewpanel { display: none !important; }
 @keyframes cfflash { 0%, 100% { background: var(--amber); } 50% { background: #fff6dc; } }
 
 /* --- the cog's own 9x9 window, in the kept #fpv panel ------------------- */
+/* The RIGHT gutter, directly beneath #viewpanel's minimap: the starter pins
+   #fpv bottom-left, which is where this game's feed and checklist live. The
+   panel keeps its own #fpv-grip drag/resize above 620 px. */
+#fpv {
+  left: auto !important;
+  right: calc(12 * var(--u));
+  bottom: auto !important;
+  top: calc(var(--topband, 0px) + 208 * var(--u));
+}
 #fpv-cap { letter-spacing: 0.12em; }
 
 /* --- scrubber beats: one rule per kind this sim emits, and no others ---- */
@@ -4527,7 +4541,11 @@ button.beat-marker {
   padding: calc(1 * var(--u)) calc(2 * var(--u));
 }
 /* 3. the checklist renders as 2 x 11 nine-px icon chips with no captions */
-#stage.tiny #cf-checklist { gap: calc(1 * var(--u)) calc(2 * var(--u)); padding: calc(2 * var(--u)); }
+#stage.tiny #cf-checklist {
+  top: calc(var(--topband, 0px) + 60 * var(--u));
+  gap: calc(1 * var(--u)) calc(2 * var(--u));
+  padding: calc(2 * var(--u));
+}
 #stage.tiny #cf-checklist .cf-chip span { display: none; }
 #stage.tiny #cf-checklist .cf-chip i { width: calc(9 * var(--u)); height: calc(9 * var(--u)); }
 #stage.tiny #cf-checklist .cf-chip.on i { box-shadow: inset 0 0 0 1px var(--amber); }
@@ -4538,7 +4556,11 @@ button.beat-marker {
 #stage.tiny #zoombar { display: none; }
 #stage.tiny #minimap { width: 56px !important; height: 56px !important; }
 #stage.tiny #viewpanel { gap: 8px; }
-#stage.tiny #fpv { width: 56px !important; height: 56px !important; }
+#stage.tiny #fpv {
+  width: 56px !important;
+  height: 56px !important;
+  top: calc(var(--topband, 0px) + 64px);
+}
 #stage.tiny #fpv-grip { display: none; }
 /* 5. the fog wash is a higher-contrast two-step and the night wash caps at
       55 % opacity: an 8 px cell cannot carry three wash levels and still show
