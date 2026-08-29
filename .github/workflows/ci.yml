@@ -120,6 +120,39 @@ jobs:
           fi
           echo "no scaffold placeholders survive"
 
+      - name: No starter identifier survives the rename sweep
+        # The design note's §Sim module opener promises this grep: the fork is
+        # a rename sweep and nothing of the starter's own namespace may
+        # survive outside comment history. Spelled through character classes
+        # so the step does not match ITSELF.
+        #
+        # Three files are allowed and each is deliberate:
+        #   client/chrome_common.js  - byte-identical to the starter's, which
+        #                              a harder pin (tests/test_crafter_viewer
+        #                              .nim) asserts by sha256;
+        #   src/crafter/wire_constants.nim - emits the one-line compatibility
+        #                              alias that lets chrome_common.js stay
+        #                              byte-identical;
+        #   tests/test_crafter_viewer.nim  - asserts the rename, so it names
+        #                              the old namespace in a string literal.
+        run: |
+          set -euo pipefail
+          pattern='[c]tf_|[C]TF_'
+          matches="$(grep -rnIE "${pattern}" . \
+            --exclude-dir=.git --exclude-dir=.starter --exclude-dir=dist \
+            --exclude-dir=plans --exclude-dir=nimcache || true)"
+          survivors="$(printf '%s' "${matches}" \
+            | grep -v '^\./client/chrome_common\.js:' \
+            | grep -v '^\./src/crafter/wire_constants\.nim:' \
+            | grep -v '^\./tests/test_crafter_viewer\.nim:' \
+            | grep -vE ':[0-9]+: *(#|//|\*)' || true)"
+          if [ -n "${survivors}" ]; then
+            echo "::error::a starter identifier survived the rename sweep"
+            printf '%s\n' "${survivors}"
+            exit 1
+          fi
+          echo "no starter identifier survives outside comment history"
+
       - name: GameVersion discipline
         # A GameVersion is claimed across BRANCHES, so the check only means
         # anything against a base ref. On a push to main there is none, and
