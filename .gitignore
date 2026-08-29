@@ -7,3 +7,9 @@ replay-viewer/dist/
 __pycache__/
 *.pyc
 .DS_Store
+
+# Compiled test binaries. `nim c tests/x.nim` drops an ELF next to its source
+# and `tests/shards/tests` is the shard runner's; ~8 MB of them were committed.
+/tests/test_crafter_*
+!/tests/test_crafter_*.nim
+/tests/shards/tests
