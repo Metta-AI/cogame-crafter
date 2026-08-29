@@ -9,7 +9,7 @@ bytes:
     curl -sSL "$replay_url" -o /tmp/ep.replay
     python3 tools/replay_summary.py /tmp/ep.replay > /tmp/ep.json
     jq -e . /tmp/ep.json >/dev/null                  # strict UTF-8 JSON: ok
-    jq -r '.protocol, .results.reason, .results.tasksSolved, .results.endRule' /tmp/ep.json
+    jq -r '.protocol, .results.reason, .results.endRule, .results.achievementsUnlocked' /tmp/ep.json
     jq -r '[.plans[]|select(.source=="llm")]|length, .fallbacks, (.says|length)' /tmp/ep.json
 
 The replay stays binary on purpose: a JSON replay would mean rewriting
@@ -122,14 +122,15 @@ def summarise(path: str) -> dict:
         if kind == "directive":
             plans.append({
                 "turn": obj.get("turn"),
-                "task": obj.get("task"),
+                "tick": obj.get("tick"),
                 "source": obj.get("source"),
                 "latency_ms": obj.get("latency_ms"),
-                "verbs": [a.get("do") for a in (obj.get("actions") or [])],
+                "verbs": [a.get("act") for a in (obj.get("actions") or [])],
                 "executed": obj.get("executed") or [],
                 "truncated": obj.get("truncated"),
                 "dropped": obj.get("dropped"),
                 "unreachable": obj.get("unreachable"),
+                "interrupted": obj.get("interrupted") or "",
                 "say": obj.get("say") or "",
             })
             if obj.get("say"):
@@ -157,13 +158,17 @@ def summarise(path: str) -> dict:
         "gameVersion": game_version or results.get("gameVersion", ""),
         "seed": config.get("seed"),
         "variant": config.get("variant", ""),
-        "taskLadder": config.get("taskLadder") or [],
+        "worldSize": config.get("worldSize"),
+        "maxTurns": config.get("maxTurns"),
+        "maxTicks": config.get("maxTicks"),
         "names": names,
         "aliases": aliases,
         "policyKinds": [r.get("kind", "") for r in registers],
-        "tickCount": len(results.get("taskTicks") or []) and
-                     sum(results.get("taskTicks") or []) or
-                     results.get("finalTick", 0),
+        "tickCount": results.get("finalTick", 0),
+        "achievements": [
+            name for name, on in zip(results.get("achievementIds") or [],
+                                     results.get("achievementUnlocked") or [])
+            if on],
         "plans": plans,
         "says": says,
         "fallbacks": fallbacks,

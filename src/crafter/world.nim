@@ -301,24 +301,27 @@ proc generate*(seed, mountainThreshold: int): World =
       result.cells[slot] = terrain
 
 
+proc cellDigest*(x, y: int, terrain: Terrain): uint64 =
+  ## One cell's contribution to the terrain digest.
+  mix64(0x43524146, x, y, ord(terrain) + 1)
+
 proc terrainDigest*(world: World): uint64 =
-  ## The rolling terrain digest folded once at generation. `sim_state.nim`
-  ## then maintains it INCREMENTALLY on every terrain mutation rather than
-  ## scanning 4096 cells a tick; `tests/test_crafter_replay.nim` asserts the
-  ## incremental value equals this fold after a full episode.
-  result = 0xCBF29CE484222325'u64
+  ## The terrain digest, folded once at generation. `sim_state.nim` then
+  ## maintains it INCREMENTALLY on every terrain mutation rather than scanning
+  ## 4096 cells a tick.
+  ##
+  ## The fold is an XOR of per-cell hashes ON PURPOSE: XOR is its own inverse,
+  ## so a mutation is `digest xor cellDigest(old) xor cellDigest(new)` and the
+  ## incremental value is EQUAL to a fresh fold, not merely correlated with
+  ## it. A sequential mix would have made the two permanently different
+  ## numbers and `tests/test_crafter_replay.nim` item 33 unprovable.
   for slot in 0 ..< WorldCells:
-    result = result xor cast[uint64](int64(ord(world.cells[slot]) + 1))
-    result = result * 0x100000001B3'u64
-    result = result xor (result shr 29)
+    result = result xor cellDigest(slot mod WorldSize, slot div WorldSize,
+                                   world.cells[slot])
 
 proc mixTerrain*(digest: uint64, x, y: int, oldKind, newKind: Terrain): uint64 =
-  ## `terrainHash = mixHash(terrainHash, x, y, oldKind, newKind)`.
-  result = digest
-  for value in [x, y, ord(oldKind), ord(newKind)]:
-    result = result xor cast[uint64](int64(value) + 1)
-    result = result * 0x100000001B3'u64
-    result = result xor (result shr 29)
+  ## One terrain mutation, applied to the running digest.
+  digest xor cellDigest(x, y, oldKind) xor cellDigest(x, y, newKind)
 
 # ---------------------------------------------------------------------------
 #  Visibility — the exact 9 x 9 rule

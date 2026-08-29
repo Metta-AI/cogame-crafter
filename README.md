@@ -1,96 +1,163 @@
 # cogame-crafter
 
-**One cog, alone, in a 13 × 13 walled gridworld it can only see 7 × 7 of.**
-On the screen is a sentence: *"use the yellow key to open the door and then get
-to the green goal square"*, or *"put the red ball next to the blue box"*, or —
-in the XLand variant — *"make a purple box"* with **no** explanation of how
-purple boxes come to exist.
+**One cog wakes at dawn in the middle of a 64 × 64 procedurally generated world
+it can see nine cells of.** It is hungry, thirsty and tired, and there is a list
+of **twenty-two things it has never done**: chop wood, put down a crafting
+table, make a wooden pickaxe, mine stone, make a stone pickaxe, build a furnace,
+smelt an iron pickaxe, and — at the bottom of the tech tree — cut a diamond out
+of the rock. It also has to eat, drink, sleep, and survive the zombies that come
+out of the grass when the sun goes down.
 
-The cog turns, walks, picks things up, opens doors and pushes objects together.
-Lava kills it. Grey obstacle balls kill it if it walks into one. An episode is a
-**gauntlet of five tasks**, each on its own seeded layout with its own sentence
-and its own eleven-turn window. The only number the league reads is **how many
-of the five it solved**.
+Every tick it does one of seventeen things. **The only number the league reads
+is how many of the twenty-two it unlocked before it died.**
 
-The whole game is the gap between the sentence and the 7 × 7 window: you are
-told what to do and shown almost nothing, and every turn you spend looking is a
-turn you did not spend doing.
+The whole game is the tension between the tree and the clock: every step down
+the tech tree costs ticks you needed for water, and every night you sleep
+through is a night you did not spend mining.
 
 *A policy is just a prompt.* Both champions are `PLAYER_PROMPT` strategies; the
 LLM call is made by the **game** server, and the seat container is a thin
 registrar.
 
-## The board
+## The world
 
-`13 × 13` cells, the whole border ring wall, so the playable interior is
-11 × 11 = 121 cells. A cell holds at most one thing:
+`64 × 64` cells, the whole outer ring **bedrock**, so the playable interior is
+62 × 62. A cell holds exactly one terrain and at most one creature.
 
-| Content | Glyph | Passable | Sees behind |
-|---|---|---|---|
-| empty floor | `.` | yes | yes |
-| wall | `#` | no | no |
-| lava | `~` | **yes** — entering it ends the task | yes |
-| goal square | `G` | yes | yes |
-| key / ball / box | `k` `o` `b` | no | yes |
-| door, open / closed / locked | `D` `d` `L` | open only | open only |
+| Terrain | Glyph | Walkable | Mined by `do` | Yields | Becomes |
+|---|---|---|---|---|---|
+| grass | `.` | yes | yes (1-in-10) | 1 sapling | grass |
+| sand | `,` | yes | no | — | — |
+| water | `~` | no | yes | +1 drink | water |
+| stone | `#` | no | needs a wood pickaxe | 1 stone | `path` |
+| cave floor | `=` | yes | no | — | — |
+| tree | `T` | no | bare hands | 1 wood | tree (**infinite**) |
+| coal | `c` | no | needs a wood pickaxe | 1 coal | `path` |
+| iron | `i` | no | needs a **stone** pickaxe | 1 iron | `path` |
+| diamond | `D` | no | needs an **iron** pickaxe | 1 diamond | `path` |
+| lava | `!` | **yes** | no | — | stepping in is **instant death** |
+| bedrock | `B` | no | no | — | — |
+| table | `t` | no | no | — | — (placed) |
+| furnace | `f` | no | no | — | — (placed) |
+| sapling | `p` | no | no | — | ripens after 120 ticks |
+| ripe plant | `Y` | no | yes | +6 food | sapling |
 
-Colours are the six Crafter colours: `red green blue purple yellow grey`.
+`U` is a cow, `Z` a zombie, `K` a skeleton, `^` an arrow in flight; `@` is the
+cog and `?` is a cell it has never seen. Those twenty-one glyphs are the whole
+vocabulary the seat ever reads, and the whole vocabulary the viewer's inset ever
+draws.
 
-## The seven task families
+## The seventeen actions
 
-`lavagap`, `doorkey`, `multiroom`, `keycorridor`, `dynamic`, `babyai` and
-`xland`. Two variants ship:
+Exactly Crafter's seventeen, by name, and nothing else is a primitive:
 
-| Variant | Ladder (in order) | par |
-|---|---|---|
-| `gauntlet` | lavagap, doorkey, multiroom, keycorridor, babyai | 3 |
-| `xland` | dynamic, xland, xland, xland, babyai | 2 |
+`noop`, `move_left`, `move_right`, `move_up`, `move_down`, `do`, `sleep`,
+`place_stone`, `place_table`, `place_furnace`, `place_plant`,
+`make_wood_pickaxe`, `make_stone_pickaxe`, `make_iron_pickaxe`,
+`make_wood_sword`, `make_stone_sword`, `make_iron_sword`.
+
+A policy sends up to **12 actions per turn**, which the driver expands into at
+most **24 primitives** — one per tick — plus two macros (`goto`, `move`) and an
+`n` multiplier on `do` and `sleep`. **Any hit ends the turn early** and throws
+away the rest of the plan, which is what keeps batching from removing
+reactivity. See [`docs/ACTIONS.md`](docs/ACTIONS.md).
 
 ## Scoring
 
 ```
-scores[0] = 100_000 × tasksSolved     (0 … 5)
-          +   1_000 × progressTotal   (0 … 15, the named subgoal credits)
-          +      10 × speedTotal      (0 … 50, turns saved on solved tasks)
+scores[0] = 10000 * achievementsUnlocked + survivalTicks
 ```
 
-Higher is better and **every term only ever adds**. The ordering is strictly
-lexicographic by construction: `1_000×15 + 10×50 = 15_500 < 100_000`, and
-`10×50 = 500 < 1_000`. Maximum 515 500; minimum 0.
+Higher is better and every term only ever adds. One more achievement is worth
+10 000 and the largest possible survival term is 1344, so **achievements always
+dominate** and survival is purely the tie-break. `results.win[0]` is
+`achievementsUnlocked >= parAchievements` — a "did the cog clear the bar" flag,
+not a duel.
 
-## Playing it
+The paper's geometric-mean aggregate is a **cross-episode** statistic and is
+computed by [`tools/crafter_score.py`](tools/crafter_score.py) over a directory
+of `results.json` files. It is **not** what the ladder ranks. See
+[`docs/ACHIEVEMENTS.md`](docs/ACHIEVEMENTS.md).
 
-The seat sends one registration blob and then only listens; every decision
-happens in the game server.
+## Variants
+
+Both are `num_agents: 1`, `maxTurns: 56`, `turnTicks: 24`, `maxTicks: 1344`.
+
+| Variant | day / night | zombies | cows | mountain | par |
+|---|---|---|---|---|---|
+| `standard` | 128 / 64 | 8 | 12 | 700 | 8 |
+| `longnight` | 80 / 80 | 12 | 8 | 660 | 6 |
+
+`standard` is the canonical Crafter world: seven day/night cycles, twice as much
+day as night, plenty of cows. `longnight` is the survival-pressure variant —
+half the episode dark, half again as many zombies, and ore closer to the surface
+so the tech tree stays reachable in the dark.
+
+## Policies
+
+One image, two entrypoints, and the whole policy set switched by environment:
 
 ```bash
 coworld upload-policy coworld-crafter:latest --name my-crafter \
-  --run /bin/crafter-player \
-  --secret-env PLAYER_PROMPT="Map first, then act, and never lose what you learned…"
+  --run /bin/crafter-player --secret-env PLAYER_PROMPT="<your strategy>"
 ```
 
-`PLAYER_SCRIPTED=scout|bumper` selects a published scripted baseline instead.
-A seat that sets neither plays `scout`.
+| Env | Effect |
+|---|---|
+| `PLAYER_PROMPT` | this seat is an **LLM** seat; the prompt is its whole strategy |
+| `PLAYER_SCRIPTED` | `forager` \| `wanderer` — this seat is scripted |
+| `PLAYER_POLICY_LABEL` | a free label for the replay's `register` record |
 
-Full rules: [docs/RULES.md](docs/RULES.md).
-The reply format: [docs/ACTIONS.md](docs/ACTIONS.md).
-What this is and is **not** a port of: [docs/PORTING-CRAFTER.md](docs/PORTING-CRAFTER.md).
-The wire contract: [docs/PROTOCOL.md](docs/PROTOCOL.md).
-The design note this repo implements: [docs/plans/2026-08-28-crafter-design.md](docs/plans/2026-08-28-crafter-design.md).
+A seat that sets neither is `forager`, which is also the server-side fallback
+whenever a seat's LLM call fails twice — so no failure mode ever leaves the cog
+without an action.
 
-## Building
+The shipped set (`tools/ci/policies.json`) is two `PLAYER_PROMPT` champions —
+`crafter-techtree` (climb the tree, everything else is logistics) and
+`crafter-homesteader` (build a base, then raid out of it) — plus the two
+scripted fillers.
+
+## Two name spaces
+
+In-game the seat is **`Alpha`**, and that alias is the only name that appears in
+an observation, in a prompt, in a `say`, or on the board. Its **real
+policy/player name** lives only in `results.names`, in the replay's join record,
+and spectator-side in the viewer's scorebug plate and endcard.
+
+## Replays
+
+The replay is the starter's binary `COWLDCRF` format: the resolved config, the
+join, the per-turn plans, the chat records and **one `gameHash` per tick**. The
+whole 64 × 64 world, every ore, every creature and every achievement tick is
+**re-generated in the browser** from the seed and the variant by the *same sim
+module* compiled to WebAssembly — the static replay bundle, never a pod.
 
 ```bash
-docker compose build                      # the one image, two entrypoints
-nim c -r tests/shards/tests.nim           # the test suite, from the repo root
-tools/build_replay_viewer.sh "$PWD/dist/static-replay-viewer"
+python3 tools/replay_summary.py path/to/episode.replay | jq .
 ```
 
-CI is the only harness that matters: `.github/workflows/ci.yml` runs every
-`tests/*.nim` in debug and release, builds the image and plays a real episode
-in raw Docker, then compiles the static wasm replay viewer and **opens it in
+## Build and test
+
+```bash
+nimby use 2.2.4 && nimby --global sync nimby.lock
+nim c -r --path:src tests/shards/tests.nim     # every shard
+docker build -t coworld-crafter:ci . && ./tools/ci/docker_smoke.sh coworld-crafter:ci
+./tools/build_replay_viewer.sh "$PWD/dist/static-replay-viewer"
+```
+
+`.github/workflows/ci.yml` is the only harness that matters: it runs every
+`tests/*.nim` in debug **and** release, builds the production image and plays a
+real episode in raw Docker, then builds the wasm bundle and **opens it in
 headless chromium** against the replay that episode produced.
 
-Forked from [`Metta-AI/coworld-ctf`](https://github.com/Metta-AI/coworld-ctf)
-(paintbot) — its broadcast chrome, its replay codec, its LLM transport and its
-build wiring are this repo's, retargeted.
+## Documentation
+
+- [`docs/RULES.md`](docs/RULES.md) — the world, the clock, the vitals, the
+  creatures, the end conditions
+- [`docs/ACTIONS.md`](docs/ACTIONS.md) — the reply schema and every per-field cap
+- [`docs/ACHIEVEMENTS.md`](docs/ACHIEVEMENTS.md) — the twenty-two, in order
+- [`docs/PORTING-CRAFTER.md`](docs/PORTING-CRAFTER.md) — **what this is and is
+  not a port of**
+- [`docs/PROTOCOL.md`](docs/PROTOCOL.md) — the Coworld contract
+- [`docs/plans/2026-08-28-crafter-design.md`](docs/plans/2026-08-28-crafter-design.md)
+  — the design note this repo implements, verbatim

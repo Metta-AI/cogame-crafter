@@ -1,164 +1,215 @@
-## Manifest — design note §Tests items 33..34.
+## Manifest — design note §Tests items 37 and 38.
 
-import std/[json, os, strutils, tables, unittest]
-import crafter/[sim, tasks]
+import std/[json, os, osproc, sequtils, sets, strutils, unittest]
+import crafter/[sim, driver, directives, baselines]
 import helpers
 
-suite "crafter manifest":
+proc gameConfigOf(node: JsonNode): GameConfig =
+  ## The manifest's `game_config` as a real `GameConfig`, exactly the way the
+  ## runner hands it over — tokens injected, everything else verbatim.
+  var payload = node.copy()
+  payload["tokens"] = %*["token-0"]
+  result = defaultGameConfig()
+  result.update($payload)
 
-  test "33. manifest pins":
-    let m = manifest()
-    ## num_agents == 1 in BOTH variants' game_config AND in the cert fixture,
-    ## and ABSENT at every variant top level (`CoworldVariant` is
-    ## additionalProperties:false — goofspiel-oshi-zumo 0.1.0).
+suite "the manifest pins":
+  let m = manifest()
+
+  test "num_agents is 1 in both variants AND the cert fixture, inside game_config":
     check m["variants"].len == 2
     for variant in m["variants"]:
       check variant["game_config"]["num_agents"].getInt() == 1
+      ## Never at the variant's TOP level: `CoworldVariant` is
+      ## additionalProperties:false and rejects it (goofspiel-oshi-zumo 0.1.0).
       check not variant.hasKey("num_agents")
-      check variant.hasKey("description")
+      check variant.hasKey("id")
+      check variant.hasKey("name")
       check variant["description"].getStr().len > 40
-      ## No literal `tokens` in any game_config (knights-archers 0.1.0).
-      check not variant["game_config"].hasKey("tokens")
-      ## Every wallClockBudgetSeconds <= 660, deadlines whole seconds, and
-      ## attempt1Ms + retryMs <= turnBudgetMs.
-      let config = variant["game_config"]
-      check config["wallClockBudgetSeconds"].getInt() <= 660
-      check config["attempt1Ms"].getInt() mod 1000 == 0
-      check config["retryMs"].getInt() mod 1000 == 0
-      check config["attempt1Ms"].getInt() + config["retryMs"].getInt() <=
-        config["turnBudgetMs"].getInt()
-      check config["maxTurns"].getInt() ==
-        config["taskCount"].getInt() * config["taskTurnCap"].getInt()
-      check config["maxTicks"].getInt() ==
-        config["maxTurns"].getInt() * config["turnTicks"].getInt()
     check m["certification"]["game_config"]["num_agents"].getInt() == 1
+
+  test "no literal tokens in any game_config":
+    ## matriculate rejects "game_config must not include runner-managed
+    ## tokens" (knights-archers 0.1.0), while config_schema keeps REQUIRING
+    ## them because the runner injects them.
+    for variant in m["variants"]:
+      check not variant["game_config"].hasKey("tokens")
     check not m["certification"]["game_config"].hasKey("tokens")
-    check m["certification"]["game_config"]["wallClockBudgetSeconds"].getInt() <= 660
+    check "tokens" in m["game"]["config_schema"]["required"].getElems().mapIt(
+      it.getStr()).toHashSet()
 
-    ## EVERY declared player must occupy a certification slot (raid 0.1.2), so
-    ## with one seat there is exactly one declared player and it is seated.
+  test "exactly one declared player, and it is seated in the fixture":
+    ## Every declared player must occupy a certification slot (raid 0.1.2).
     check m["player"].len == 1
-    check m["player"][0]["id"].getStr() == "scout"
+    let declared = m["player"][0]["id"].getStr()
+    check declared == "forager"
     check m["certification"]["players"].len == 1
-    check m["certification"]["players"][0]["player_id"].getStr() == "scout"
+    check m["certification"]["players"][0]["player_id"].getStr() == declared
     check m["certification"]["game_config"]["players"].len == 1
-    ## limits.cpu >= "1" (pistonball 0.1.1).
+    ## `limits.cpu` must be at least "1" (pistonball 0.1.1).
     check m["player"][0]["resources"]["limits"]["cpu"].getStr() == "1"
+    check m["player"][0]["image"].getStr() == "{{CRAFTER_IMAGE}}"
+    check m["player"][0]["run"][0].getStr() == "/bin/crafter-player"
+    check m["player"][0]["description"].getStr().len > 20
 
-    ## Every ARRAY property in config_schema carries minItems/maxItems
-    ## (tandem 0.1.0).
-    for key, prop in m["game"]["config_schema"]["properties"].pairs:
-      if prop{"type"}.getStr() == "array":
-        check prop.hasKey("minItems")
-        check prop.hasKey("maxItems")
-    check m["game"]["config_schema"]["additionalProperties"].getBool() == false
-    var required: seq[string]
-    for item in m["game"]["config_schema"]["required"]:
-      required.add(item.getStr())
-    check "tokens" in required          ## the runner injects them
-    check "players" in required
+  test "every array in config_schema carries minItems and maxItems":
+    ## The tandem 0.1.0 scar.
+    for name, property in m["game"]["config_schema"]["properties"]:
+      if property{"type"}.getStr() != "array":
+        continue
+      check property.hasKey("minItems")
+      check property.hasKey("maxItems")
 
-    ## episode_timeout_minutes is TOP-LEVEL, not under game.
+  test "episode_timeout_minutes is top level and the tags are not under game":
     check m.hasKey("episode_timeout_minutes")
     check not m["game"].hasKey("episode_timeout_minutes")
-    ## Both protocols present as {"type","value"} OBJECTS (garble v0.1.0).
-    for key in ["player", "global"]:
-      check m["game"]["protocols"].hasKey(key)
-      check m["game"]["protocols"][key].kind == JObject
-      check m["game"]["protocols"][key].hasKey("type")
-      check m["game"]["protocols"][key].hasKey("value")
-    ## docs.readme + pages.
-    check m["game"]["docs"]["readme"].kind == JObject
-    check m["game"]["docs"]["pages"].len == 3
-    for page in m["game"]["docs"]["pages"]:
-      for key in ["id", "title", "content"]:
-        check page.hasKey(key)
-    ## game.description present, game.tags ABSENT (pistonball 0.1.0), and at
-    ## least three top-level tags.
-    check m["game"]["description"].getStr().len > 40
-    check not m["game"].hasKey("tags")
     check m["tags"].len >= 3
-    ## The replay viewer is the STATIC BUNDLE, under `game`.
+    check not m["game"].hasKey("tags")          ## pistonball 0.1.0
+    check m["game"]["description"].getStr().len > 40
+    check m.hasKey("$schema")
+    check not m.hasKey("version")               ## coworld 0.1.42
+    check not m["game"].hasKey("display_name")
+    check m["game"]["owner"].getStr().len > 0
+
+  test "protocols and docs are {type,value} objects, never bare strings":
+    ## The garble v0.1.0 scar.
+    for key in ["player", "global"]:
+      let node = m["game"]["protocols"][key]
+      check node.kind == JObject
+      check node.hasKey("type")
+      check node["value"].getStr().startsWith("https://")
+    check m["game"]["docs"]["readme"]["value"].getStr().endsWith("README.md")
+    var pages: HashSet[string]
+    for page in m["game"]["docs"]["pages"]:
+      pages.incl(page["id"].getStr())
+      check page["content"]["value"].getStr().startsWith("https://")
+      check page.hasKey("title")
+    check pages == ["rules.md", "actions.md", "achievements.md",
+                    "porting.md"].toHashSet()
+    ## Every page the manifest points at is committed.
+    for page in m["game"]["docs"]["pages"]:
+      let url = page["content"]["value"].getStr()
+      let path = url.split("/blob/main/")[^1]
+      check fileExists(repoRoot() / path)
+
+  test "the replay viewer is the STATIC bundle, under game, never a pod":
     check m["game"]["replay_viewer"]["bundle"].getStr() == "static-replay-viewer"
     check not m.hasKey("replay_viewer")
     check m["game"]["runnable"]["type"].getStr() == "game"
     check m["game"]["runnable"]["run"][0].getStr() == "/bin/crafter"
-    ## game.name equals the slug AND the secret URI's namespace (the
-    ## commons-family 2026-08-24 scar).
-    check m["game"]["name"].getStr() == "crafter"
+
+  test "game.name equals the slug and the secret namespace":
+    ## The commons-family 2026-08-24 scar: an underscore in `game.name` and
+    ## the upload is rejected after a fully green certify.
+    let name = m["game"]["name"].getStr()
+    check name == "crafter"
     check m["game"]["runnable"]["env"]["ANTHROPIC_API_KEY_URI"].getStr() ==
-      "secret://coworld/crafter/anthropic_api_key"
-    check not m.hasKey("version")
-    check not m["game"].hasKey("display_name")
-    check m["game"].hasKey("owner")
-
-    ## EVERY variant's game_config actually constructs a valid GameConfig,
-    ## generates all five of its tasks, and produces the ladder, the missions
-    ## and the 55-turn schedule this note claims (the collab-cooking 0.1.1
-    ## scar: test every variant, not just the fixture).
-    var configs: seq[JsonNode]
-    for variant in m["variants"]:
-      configs.add(variant)
-    configs.add(m["certification"])
-    for variant in configs:
-      var config = defaultGameConfig()
-      var node = variant["game_config"].copy()
-      node["tokens"] = %["token-0"]
-      config.update($node)
-      config.validate()
-      var sim = initSimServer(config)
-      sim.phase = Playing
-      check config.maxTurns == 55
-      check config.taskLadder.len == 5
-      for taskIndex in 0 ..< config.taskCount:
-        sim.startTask(taskIndex)
-        check sim.task.mission.len > 0
-        check $sim.task.family == config.taskLadder[taskIndex]
-        check sim.task.grid.at(sim.task.startX, sim.task.startY).kind == ckEmpty
-      ## The ladder plays to a real end on the shipped baseline.
-      let played = playScripted(config)
-      check played.phase == GameOver
-      check played.endReason == erComplete
-
-    ## The xland constants are bounded by `validate()` as well as by
-    ## config_schema: below four objects or three rules the rule sampler
-    ## returns an EMPTY set and `generateXland` indexes it.
-    var short = defaultGameConfig()
-    short.xlandObjects = 3
-    expect ConfigError:
-      short.validate()
-    var norules = defaultGameConfig()
-    norules.xlandRules = 2
-    expect ConfigError:
-      norules.validate()
-
-  test "34. the manifest loads under the installed CLI's own validator":
-    ## CI runs `coworld`'s `validate_upload_manifest` / `_load_template_manifest`
-    ## for real (the collab-cooking 2026-08-25 scar). Here we assert the shape
-    ## those functions require, so a local run fails before a dispatch does.
-    let raw = readRepo("coworld_manifest_template.json")
-    check "{{CRAFTER_IMAGE}}" in raw
-    let m = parseJson(raw)
-    check m.hasKey("$schema")
-    ## `_load_template_manifest` reads the image off EVERY runnable — the game's
-    ## and every role section's — so the placeholder lives INSIDE
-    ## `game.runnable`, never beside it (coworld/bundle.py:123-130 raises
-    ## KeyError('image') otherwise), and `source_url` goes with it because
-    ## `CoworldGame` forbids extra keys.
-    check m["game"]["runnable"]["image"].getStr() == "{{CRAFTER_IMAGE}}"
-    check not m["game"].hasKey("image")
-    check m["game"]["runnable"].hasKey("source_url")
-    check not m["game"].hasKey("source_url")
-    ## Role-section entries carry a runnable type from the CLI's own enum
-    ## {player, commissioner, grader, diagnoser, optimizer} — "policy" is not
-    ## one of them.
-    for player in m["player"]:
-      check player["type"].getStr() == "player"
-      check player["image"].getStr() == "{{CRAFTER_IMAGE}}"
-    ## The compose service name is what the placeholder is DERIVED from
+      "secret://coworld/" & name & "/anthropic_api_key"
+    ## The compose service name is where the image placeholder comes from
     ## (lantern 0.1.0).
     let compose = readRepo("compose.yaml")
-    check "  crafter:" in compose
-    check "image: coworld-crafter:latest" in compose
-    check "platform: linux/amd64" in compose
-    check "network: host" in compose
+    check compose.contains("  " & name & ":")
+    check m["game"]["runnable"]["image"].getStr() == "{{CRAFTER_IMAGE}}"
+
+  test "the deadlines and the caps satisfy every validator":
+    for config in [m["variants"][0]["game_config"],
+                   m["variants"][1]["game_config"],
+                   m["certification"]["game_config"]]:
+      let resolved = gameConfigOf(config)
+      check resolved.wallClockBudgetSeconds <= 660
+      check resolved.attempt1Ms mod 1000 == 0
+      check resolved.retryMs mod 1000 == 0
+      check resolved.attempt1Ms + resolved.retryMs <= resolved.turnBudgetMs
+      check resolved.maxTicks == resolved.maxTurns * resolved.turnTicks
+      check resolved.dayFraction < resolved.dayLength
+      check resolved.numAgents == 1
+
+  test "the results_schema achievement arrays are pinned at 22":
+    let props = m["game"]["results_schema"]["properties"]
+    for key in ["achievementIds", "achievementUnlocked", "achievementTick"]:
+      check props[key]["minItems"].getInt() == AchievementCount
+      check props[key]["maxItems"].getInt() == AchievementCount
+    check props["toolsOwned"]["minItems"].getInt() == 0
+    check props["toolsOwned"]["maxItems"].getInt() == 6
+    check m["game"]["results_schema"]["additionalProperties"].getBool() == false
+    var reasons: HashSet[string]
+    for value in props["reason"]["enum"]:
+      reasons.incl(value.getStr())
+    check reasons == ["complete", "deadline", "fault"].toHashSet()
+    var rules: HashSet[string]
+    for value in props["endRule"]["enum"]:
+      rules.incl(value.getStr())
+    check rules == ["death", "allUnlocked", "turnCap", "tickCap", "wallClock",
+                    "fault"].toHashSet()
+    var causes: HashSet[string]
+    for value in props["deathCause"]["enum"]:
+      causes.incl(value.getStr())
+    check causes == ["zombie", "skeleton", "arrow", "lava", "starvation",
+                     "thirst", "exhaustion", "none"].toHashSet()
+
+  test "EVERY variant's game_config constructs, generates and plays":
+    ## The collab-cooking 0.1.1 scar: test every variant, not just the
+    ## fixture. A config-scaled mint that only the smaller fixture survives is
+    ## a league of `game_unhealthy` episodes with a green cert.
+    for variant in m["variants"]:
+      let config = gameConfigOf(variant["game_config"])
+      config.validate()
+      ## It generates a world that passes the generation invariants...
+      let world = generate(config.seed + 11, config.mountainThreshold)
+      var counts = [0, 0, 0]
+      for slot in 0 ..< WorldCells:
+        case world.cells[slot]
+        of tCoal: inc counts[0]
+        of tIron: inc counts[1]
+        of tDiamond: inc counts[2]
+        else: discard
+      check counts[0] >= 5
+      check counts[1] >= 3
+      check counts[2] >= 1
+      ## ...and it produces the 56-turn schedule this note claims.
+      check config.maxTurns == 56
+      check config.turnTicks == 24
+      var play = config
+      play.seed = 5
+      play.lobbyJoinTimeoutTicks = 4
+      let sim = playScripted(play, blForager)
+      check sim.phase == GameOver
+      check sim.endReason == erComplete
+      check sim.turnsPlayed <= config.maxTurns
+      check sim.survivalTicks() <= config.maxTicks
+
+  test "the shipped policy set is two prompts and two scripted fillers":
+    let policies = parseJson(readRepo("tools/ci/policies.json"))
+    check policies.len == 4
+    var prompts = 0
+    var scripted = 0
+    for policy in policies:
+      check policy["run"].getStr() == "/bin/crafter-player"
+      check policy["name"].getStr().startsWith("crafter-")
+      if policy["env"].hasKey("PLAYER_PROMPT"):
+        inc prompts
+        check policy["env"]["PLAYER_PROMPT"].getStr().len > 400
+      if policy["env"].hasKey("PLAYER_SCRIPTED"):
+        inc scripted
+        check parseBaseline(policy["env"]["PLAYER_SCRIPTED"].getStr()) in
+          [blForager, blWanderer]
+    ## A scripted policy seated as a CHAMPION is a failure state: both
+    ## champions run PLAYER_PROMPT, and champion #2 is owned by daveey-1.
+    check prompts == 2
+    check scripted == 2
+    check policies[1]["player"].getStr() ==
+      "ply_bac48eb1-662e-44f8-973d-f3e016dccf5d"
+
+  test "the manifest loads under the installed CLI, when there is one":
+    ## Item 38. `coworld` is not installed in the sandbox or in the `test`
+    ## job's image, so this is a no-op there and a real check wherever the CLI
+    ## exists; `coworld-release.yml`'s own build step is the hard gate.
+    let probe = execCmdEx("python3 -c 'import coworld' 2>/dev/null")
+    if probe.exitCode != 0:
+      skip()
+    else:
+      let run = execCmdEx("python3 -c " & quoteShell(
+        "from coworld.manifest import validate_upload_manifest;" &
+        "import json,sys;" &
+        "validate_upload_manifest(json.load(open(sys.argv[1])))") & " " &
+        quoteShell(repoRoot() / "coworld_manifest_template.json"))
+      check run.exitCode == 0

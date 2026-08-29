@@ -1,109 +1,131 @@
-## Events — design note §Tests item 42, plus the tier-2 analysis stream.
+## Events — design note §Tests item 48, and the tier-2 analysis stream.
 
-import std/[json, strutils, unittest]
-import crafter/[sim, broadcast, events, baselines, driver]
+import std/[json, sets, strutils, tables, unittest]
+import crafter/[sim, driver, baselines, events, broadcast]
 import helpers
 
-const DeclaredKinds = [
-  "taskstart", "turn", "plan", "say", "fallback", "pickup", "drop", "open",
-  "close", "unlock", "produce", "subgoal", "lava", "crash", "solved",
-  "failed", "budget", "end"]
+const
+  ## The CLOSED enum of twenty-one derived broadcast kinds, plus `end`.
+  DeclaredKinds = ["turn", "plan", "say", "fallback", "achievement", "collect",
+                   "craft", "place", "eat", "drink", "hurt", "heal", "kill",
+                   "spawn", "burn", "sleep", "nightfall", "daybreak", "starve",
+                   "death", "budget", "end"]
+  ## The scrubber's beat kinds, and the ONLY kinds the appended game block
+  ## draws a marker for.
+  BeatKinds = ["achievement", "nightfall", "daybreak", "kill", "death",
+               "fallback", "end"]
 
-suite "crafter events":
-
-  test "42. the emitted set is EXACTLY the closed enum":
-    ## Seventeen kinds plus `end`.
-    check DeclaredKinds.len == 18
-    var declared: seq[string]
+suite "the derived event vocabulary":
+  test "the emitted set equals exactly the declared list":
+    var declared: HashSet[string]
     for kind in EventKind:
-      declared.add($kind)
-    for kind in DeclaredKinds:
-      check kind in declared
-    for kind in declared:
-      check kind in DeclaredKinds
+      declared.incl($kind)
+    check declared == DeclaredKinds.toHashSet()
+    check declared.len == DeclaredKinds.len
 
-    ## Every kind the appended game block routes is in that set.
-    let page = readRepo("client/replay_broadcast.html")
-    let split = page.find("CRAFTER additions to the inherited coworld-ctf chrome")
-    let block0 = page[split .. ^1]
-    for kind in DeclaredKinds:
-      check ("case '" & kind & "':") in block0 or ("'" & kind & "'") in block0
-
-    ## The beats are exactly the seven the scrubber draws; nothing per-tick is
-    ## a beat, so the feed cannot flood.
-    var beats: seq[string]
+  test "isBeat is exactly the seven documented kinds":
+    var beats: HashSet[string]
     for kind in EventKind:
-      if kind.isBeat(): beats.add($kind)
-    check beats.len == 7
-    for kind in ["taskstart", "solved", "failed", "unlock", "produce",
-                 "fallback", "end"]:
-      check kind in beats
-    for kind in ["turn", "plan", "say", "pickup", "drop", "open", "close",
-                 "subgoal", "lava", "crash", "budget"]:
-      var value = evTurn
-      for candidate in EventKind:
-        if $candidate == kind: value = candidate
-      check not value.isBeat()
+      if kind.isBeat():
+        beats.incl($kind)
+    check beats == BeatKinds.toHashSet()
 
-  test "a real episode emits only declared kinds, in the documented shape":
-    var config = testConfig("xland", 11)
-    var sim = initSimServer(config)
-    sim.phase = Playing
-    sim.startTask(0)
-    var tracker = initBroadcastTracker()
-    var seen: seq[string]
-    var turns = 0
-    while sim.phase == Playing and turns < 400:
+  test "every kind the appended game block handles is in the set":
+    ## The block's `switch (e.k)` and its beat builder may only name kinds the
+    ## sim can emit; a case for a kind that never arrives is dead chrome and a
+    ## kind with no case is a silent gap.
+    let block1 = readRepo("client/crafter_block.html")
+    var handled: HashSet[string]
+    for line in block1.splitLines():
+      let trimmed = line.strip()
+      if not trimmed.startsWith("case '"):
+        continue
+      let name = trimmed.split('\'')[1]
+      handled.incl(name)
+    ## Every kind the block handles is a real one...
+    for name in handled:
+      check name in DeclaredKinds
+    ## ...and every beat kind is one the block actually draws.
+    for name in BeatKinds:
+      check name in handled
+
+  test "every event shape carries the documented fields":
+    var sim = startedSim(testConfig())
+    for kind in EventKind:
+      let node = sim.eventJson(SimEvent(kind: kind, tick: 7, i: 1, x: 2, y: 3,
+                                        n: 4, m: 5, a: "a", b: "b", c: "c"))
+      check node["k"].getStr() == $kind
+      check node["t"].getInt() == 7
+      case kind
+      of evAchievement:
+        check node.hasKey("id")
+        check node.hasKey("index")
+        check node.hasKey("of")
+      of evNightfall, evDaybreak:
+        check node.hasKey("day")
+      of evKill, evSpawn:
+        check node.hasKey("what")
+        check node.hasKey("x")
+      of evHurt:
+        check node.hasKey("by")
+        check node.hasKey("amount")
+        check node.hasKey("hp")
+      of evDeath:
+        check node.hasKey("by")
+      of evEnd:
+        check node.hasKey("reason")
+        check node.hasKey("endRule")
+        check node.hasKey("unlocked")
+        check node.hasKey("score")
+      else:
+        discard
+
+  test "nothing fires unconditionally per tick, so the feed never floods":
+    var sim = startedSim(testConfig())
+    var counts = initCountTable[EventKind]()
+    var ticks = 0
+    while sim.phase == Playing and ticks < 600:
       if sim.waitingForPlan():
-        sim.advanceTasks()
-        if sim.phase != Playing: break
-        let plan = scriptedPlan(sim, blScout)
-        let expansion = expandPlan(sim.knownMap, sim.agent.x, sim.agent.y,
-          sim.agent.dir, plan.actions, config.macroPrimitiveCap,
-          config.turnTicks)
+        if not sim.beginTurn(): break
+        let plan = scriptedPlan(sim, blForager)
+        let expansion = expandPlan(sim.knownMap, sim.cog.x, sim.cog.y,
+          plan.actions, sim.config.macroPrimitiveCap, sim.config.turnTicks,
+          sim.hostileCells())
         sim.installPlan(expansion.primitives, expansion.truncated, 0,
-          expansion.unreachable)
-        inc turns
+                        expansion.unreachable)
       sim.stepTick()
-      let events = newJArray()
-      sim.stepEvents(tracker, events)
-      for event in events:
-        let kind = event["k"].getStr()
-        check kind in DeclaredKinds
-        check event.hasKey("t")
-        if kind notin seen: seen.add(kind)
-    if sim.phase == Playing:
-      sim.finish(erComplete, edGauntletComplete)
-    let tail = newJArray()
-    sim.stepEvents(tracker, tail)
-    for event in tail:
-      if event["k"].getStr() notin seen: seen.add(event["k"].getStr())
-    ## The families this episode really exercises.
-    for kind in ["taskstart", "turn", "subgoal", "end"]:
-      check kind in seen
+      inc ticks
+      for event in sim.pending:
+        counts.inc(event.kind)
+      sim.pending.setLen(0)
+    ## `plan` fires once per turn (<= 56), `achievement` at most 22 times,
+    ## `nightfall` / `daybreak` at most 8 each.
+    check counts[evAchievement] <= AchievementCount
+    check counts[evNightfall] <= 8
+    check counts[evDaybreak] <= 8
+    check counts[evTurn] <= sim.config.maxTurns
+    ## And no kind fires on every single tick.
+    for kind in EventKind:
+      check counts[kind] < ticks
 
-  test "the tier-2 analysis stream keeps its summary row":
-    var sim = initSimServer(testConfig())
-    sim.phase = Playing
-    sim.startTask(0)
-    var rows: seq[string]
-    rows.add(sim.primitiveRow(pForward))
-    rows.add(sim.eventRow(SimEvent(kind: evPickup, tick: 3, x: 2, y: 9,
-      a: "key", b: "yellow")))
-    rows.add(sim.summaryRow(rows.len))
-    let stream = eventsJsonl(rows)
-    var count = 0
-    for line in stream.strip().splitLines():
-      let node = parseJson(line)
-      check node.hasKey("type")
-      inc count
-    check count == 3
-    let summary = parseJson(stream.strip().splitLines()[^1])
-    check summary["type"].getStr() == "summary"
-    check summary["gameVersion"].getStr() == GameVersion
-    check summary.hasKey("ticks")
-    check summary.hasKey("events")
-    ## `Primitive` is the per-tick row that makes this a full action trace.
-    check parseJson(rows[0])["type"].getStr() == "Primitive"
-    ## An undeclared kind produces no row rather than an undeclared one.
-    check sim.eventRow(SimEvent(kind: evSay, a: "hi")) == ""
+suite "the tier-2 analysis stream":
+  test "every derived kind maps into the analysis enum, or is deliberately not":
+    var mapped = 0
+    for kind in EventKind:
+      if kind.analysisKind().ok:
+        inc mapped
+    ## `say`, `budget` and `end` are broadcast-only: the analysis stream
+    ## carries the ACTIONS and the world's reactions to them, and the
+    ## `budget_guard` and `stop` facts live in the replay's control records.
+    check mapped == DeclaredKinds.len - 3
+    check not evSay.analysisKind().ok
+    check not evBudget.analysisKind().ok
+    check not evEnd.analysisKind().ok
+
+  test "the summary row is mandatory and carries the GameVersion":
+    var sim = startedSim(testConfig())
+    let row = parseJson(sim.summaryRow(17))
+    check row["type"].getStr() == "summary"
+    check row["events"].getInt() == 17
+    check row["gameVersion"].getStr() == GameVersion
+    check row["ticks"].getInt() == sim.tickCount

@@ -37,7 +37,7 @@ The seat sends ONE Sprite v1 chat message and then only listens:
 
 ```json
 {"policy": "<label>", "prompt": "<PLAYER_PROMPT or empty>",
- "scripted": "scout" | "bumper" | null}
+ "scripted": "forager" | "wanderer" | null}
 ```
 
 `prompt` is rune-truncated at 4000 and `policy` at 64. The message is consumed
@@ -52,8 +52,7 @@ a first registration can land before the seat has an index.
 ## The replay
 
 Binary `COWLDCRF`: magic + format version + game name/version, the **resolved
-config JSON** (seed, variant, every rule constant, the task ladder, the real
-player names), then the record stream — the join record, the per-turn
+config JSON** (seed, variant, every rule constant, the real player names), then the record stream — the join record, the per-turn
 `directive` records (this game's **entire input log**), the
 `register` / `fallback` / `budget_guard` / `stop` / `result` control records, and
 **one `gameHash` per tick**.
@@ -73,14 +72,26 @@ python3 tools/replay_summary.py episode.replay | jq -r '.protocol, .results.reas
 
 A closed schema; `game.results_schema` in the manifest lists exactly these keys.
 `reason ∈ {complete, deadline, fault}`,
-`endRule ∈ {gauntletComplete, turnCap, wallClock, fault}`,
-`taskOutcome[i] ∈ {solved, timeout, died, crashed, unreached}`.
+`endRule ∈ {death, allUnlocked, turnCap, tickCap, wallClock, fault}`,
+`deathCause ∈ {zombie, skeleton, arrow, lava, starvation, thirst, exhaustion,
+none}`.
 
-Four identities hold in every results document:
-`Σ taskTurns == turnsPlayed`; `Σ taskTicks == finalTick`;
-`taskSolved[i] == (taskOutcome[i] == "solved")` and `taskSolved[i]` implies
-`taskProgress[i] == 3`; and
-`scores[0] == 100_000×tasksSolved + 1_000×progressTotal + 10×speedTotal`.
+**Six identities hold in every results document**, and
+`tests/test_crafter_engine.nim` asserts every one:
+
+1. `scores[0] == 10_000 × achievementsUnlocked + survivalTicks`;
+2. `achievementsUnlocked == count(achievementUnlocked)` and
+   `achievementsOf == 22`;
+3. `achievementTick[i] >= 0` **iff** `achievementUnlocked[i]`, and `-1`
+   otherwise;
+4. `survivalTicks == finalTick` and `finalTick <= maxTicks`;
+5. `endRule == "death"` **iff** `finalHealth == 0` **iff**
+   `deathCause != "none"`;
+6. `primitivesExecuted <= finalTick` and `turnsPlayed <= maxTurns`.
+
+Adding a key means updating `runResultsJson`, the manifest's `results_schema`
+and the smoke's expected-key set in the SAME commit — Coworld schemas are
+closed and undeclared keys are dropped.
 
 ## Two name spaces
 

@@ -16,6 +16,7 @@
 ## below so the divergence is explicit rather than incidental.
 
 import std/[strutils, unittest]
+import crafter/sim
 import helpers
 
 const
@@ -23,25 +24,34 @@ const
   Forbidden = ["Lives left", "Hill time", "LIVES LEAD", ">Lives<", ">Hill<",
                ">Clstr<", ">Cap<", ">Tags<", ">Paint<", ">K<", ">D<",
                "Filling hoppers", "In the locker room", ">EYES<",
-               "showing recorded inputs", "kills / flag story"]
+               "showing recorded inputs", "kills / flag story", ">FIT<",
+               "Pump check"]
+  ## INHERITED DEAD PATHS. The starter's renderer carries draw code for item
+  ## kinds this sim can never emit — grenades, med kits, spray cans, shields.
+  ## Deleting that code is a rewrite of `renderItems` / `renderSplat`, which
+  ## is exactly what the "chrome verbatim" pin forbids, so the code stays and
+  ## the EVENT VOCABULARY is what keeps it dead: nothing in `EventKind` can
+  ## reach it. The names are listed so the divergence is explicit.
+  InheritedDeadPaths = ["grenade", "medkit", "spray", "shield"]
   ## The transport verdict chip is re-labelled at runtime by the game block,
   ## because the shared chrome writes "RED WINS" into it from the frame's team
   ## key and chrome_common.js is byte-for-byte the starter's.
   VerdictRelabel = "' — PAR '"
   ## Each re-mapped string, present exactly once.
   Remapped = [
-    "<span>Task</span><span>Mission</span><span>Result</span><span>Turns</span><span>Credits</span>",
-    "<span>Cog</span><span>Solved</span><span>Seen</span><span>Score</span>",
-    "<span class=\"fl-cap\">Tasks solved</span>",
-    "<span class=\"fl-cap\">Cells seen</span>",
-    "<span class=\"momentum-label\">PROGRESS</span>",
-    "<span class=\"solved-label pb-lbl\">Carrying</span>",
-    "<span class=\"solved-label\">Solved</span>",
-    "Reading the mission…",
+    "<span>#</span><span>Achievement</span><span>Unlocked</span><span>Tick</span><span>Day</span>",
+    "<span>Cog</span><span>Unlocked</span><span>Survived</span><span>Score</span>",
+    "<span class=\"fl-cap\">Achievements</span>",
+    "<span class=\"fl-cap\">Ticks survived</span>",
+    "<span class=\"momentum-label\">ACHIEVEMENTS</span>",
+    "<span class=\"vital-label pb-lbl\">Carrying</span>",
+    "<span class=\"vital-label\">Health</span>",
+    "Generating the world&hellip;",
     "Waiting for the cog",
     "showing recorded actions",
-    "<div class=\"fpv-cap\" id=\"fpv-cap\">AGENT VIEW 7×7</div>",
-    "Spoilers: solved / failed tasks on the timeline ahead of the playhead (o)"]
+    "<div class=\"fpv-cap\" id=\"fpv-cap\">AGENT VIEW 9×9</div>",
+    "Spoilers: achievements and the death on the timeline ahead of the playhead (o)",
+    "<span id=\"zoom-read\" aria-live=\"off\">15 CELLS</span>"]
   ## Inherited SELECTORS the starter's own renderers write through. Documented
   ## divergence: the names stay, the visible text is re-mapped.
   InheritedSelectors = ["hillchip", "lives-num", "lives-line", "pb-lbl"]
@@ -67,8 +77,15 @@ suite "crafter endcard labels":
       check count == 1
     ## The verdict chip is re-labelled for the one cog.
     check VerdictRelabel in page
-    check "mgEl('win-chip')" in page
+    check "cfEl('win-chip')" in page
     ## The documented divergence is real and bounded: these selectors survive,
     ## and nothing else paintbot-shaped does.
     for selector in InheritedSelectors:
       check selector in page
+    ## The inherited item-draw paths survive as CODE and are unreachable as
+    ## BEHAVIOUR: no `EventKind` this sim emits names any of them, so nothing
+    ## the game block or the sim produces can light them up.
+    for name in InheritedDeadPaths:
+      check name in page
+      for kind in EventKind:
+        check $kind != name

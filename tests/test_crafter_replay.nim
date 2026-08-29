@@ -1,202 +1,255 @@
-## Replay — design note §Tests items 28..32.
+## Replay — design note §Tests items 31..36.
+##
+## Record then re-derive for EVERY end reason, the self-sufficiency of the
+## bytes, the incremental terrain digest, `tools/replay_summary.py`'s strict
+## UTF-8 JSON, and the committed fixtures' GameVersion sweep.
 
 import std/[json, os, osproc, strutils, unicode, unittest]
-import crafter/[sim, replays, replay_runtime, decide, directives, driver,
-                 baselines]
+import crafter/[sim, driver, directives, baselines, decide, replays, broadcast,
+                replay_runtime]
 import helpers
 
-proc recordEpisode(path: string, config: GameConfig, stopAfterTurns = -1,
-                   stopRule = edGauntletComplete): SimServer =
-  ## Records a real episode to `path`, driving it exactly the way
-  ## `server.nim`'s loop does — including the LOAD-BEARING stop record written
-  ## one tick past the last simulated tick.
+proc recordEpisode(rule: EndRule, path: string,
+                   say = "", notes = ""): tuple[sim: SimServer, turns: int] =
+  ## Records one episode that ends with `rule`, through exactly the writer the
+  ## server uses, and returns the settled sim.
+  var config = testConfig()
+  if rule == edAllUnlocked:
+    config.parAchievements = 1
   var sim = initSimServer(config)
   var writer = openReplayWriter(path, config.resolvedJson())
-  writer.writeJoin(tickTime(0), 0, "scout", 0, "token-0")
-  discard sim.addPlayer("scout", 0, "token-0", trusted = true)
-  for entry in sim.players.mitems:
-    entry.registered = true
-    entry.policy = "scout"
-    entry.kind = "scripted"
-  writer.writeChat(tickTime(0), 0,
-    registerRecord(0, "Alpha", "scout", "scripted", "scout"))
-  sim.applyControlRecord(registerRecord(0, "Alpha", "scout", "scripted", "scout"))
+  var turns = 0
+
+  proc writeChat(record: string) =
+    if writer.enabled:
+      writer.writeChat(tickTime(sim.tickCount), 0, record)
+    sim.pushFeedDirective(record)
+    sim.pushControlEvents(record)
+
+  proc recordHash() =
+    if writer.enabled:
+      writer.writeHash(uint32(sim.tickCount), sim.gameHash())
+
+  ## The lobby, then the join and the redacted register record — the same
+  ## order the server writes them in.
   while sim.phase == Lobby:
     sim.step()
-    writer.writeHash(uint32(sim.tickCount), sim.gameHash())
-  var turns = 0
+    recordHash()
+  writer.writeJoin(tickTime(sim.tickCount), 0, "forager", 0, "token-0")
+  discard sim.addPlayer("forager", 0, "token-0", trusted = true)
+  writeChat(registerRecord(0, seatAlias(0), "forager", "scripted", "forager"))
+
+  var faultDetail = ""
   while sim.phase == Playing:
-    ## The forced stop is checked at the TOP of the iteration, exactly where
-    ## server.nim checks the wall clock — before the turn boundary runs.
-    if stopAfterTurns >= 0 and turns >= stopAfterTurns:
+    ## `death` is the only end this episode reaches by PLAYING. Every other
+    ## rule is applied through `sim.applyStop` and written as the LOAD-BEARING
+    ## stop record — which is precisely the path item 31 exists to check, and
+    ## the one the particle-worlds scar was about: a wall-clock (or fault,
+    ## or cap) fact cannot be re-derived from sim state, so it is one record
+    ## applied by the SAME proc on record and on playback.
+    if rule != edDeath and turns == 4:
+      if rule == edFault:
+        faultDetail = "a deliberate fault"
+      sim.applyStop(rule, faultDetail)
       break
     if sim.waitingForPlan():
-      sim.advanceTasks()
-      if sim.phase != Playing:
+      if not sim.beginTurn():
         break
-      let observation = sim.observationJson(includeNotes = false)
-      let plan = scriptedPlan(sim, blScout)
-      let record = sim.applyDirective(plan, observation)
-      writer.writeChat(tickTime(sim.tickCount), 0, record)
       inc turns
+      var plan = scriptedPlan(sim, blForager)
+      plan.source = dsLlm
+      plan.say = say
+      plan.notes = notes
+      writeChat(sim.applyDirective(plan, sim.observationJson(false)))
     sim.stepTick()
     sim.pending.setLen(0)
-    writer.writeHash(uint32(sim.tickCount), sim.gameHash())
+    recordHash()
   if sim.phase != GameOver:
-    sim.applyStop(stopRule, "forced by the test")
-  writer.writeChat(tickTime(sim.tickCount),
-    0, stopRecord(sim.tickCount, sim.endRule, sim.stopDetail))
+    sim.finish(erComplete, edTurnCap)
+
+  ## THE LOAD-BEARING STOP RECORD, for EVERY end reason.
+  writeChat(stopRecord(sim.tickCount, sim.endRule,
+    (if faultDetail.len > 0: faultDetail else: sim.stopDetail)))
   sim.step()
-  writer.writeHash(uint32(sim.tickCount), sim.gameHash())
-  writer.writeChat(tickTime(sim.tickCount), 0, resultRecord(sim))
+  recordHash()
+  writeChat(resultRecord(sim))
   writer.closeReplayWriter()
-  sim
+  (sim, turns)
 
 proc rederive(path: string): tuple[sim: SimServer, mismatch: int] =
-  let data = parseReplayBytes(readFile(path))
-  var runtime = initReplayRuntime(data, mismatchQuit = true,
+  let data = loadReplay(path)
+  var runtime = initReplayRuntime(data, mismatchQuit = false,
                                   gameEventLoggingEnabled = false)
-  var steps = 0
-  while runtime.player.playing and
-      runtime.sim.tickCount < runtime.player.replayMaxTick() and steps < 20000:
+  var guard = 0
+  while runtime.sim.tickCount < runtime.player.replayMaxTick() and guard < 4000:
+    let before = runtime.sim.tickCount
     runtime.player.stepReplay(runtime.sim)
-    inc steps
+    if runtime.sim.tickCount == before:
+      break
+    inc guard
   (runtime.sim, runtime.player.hashMismatchTick)
 
-suite "crafter replay":
+suite "replay":
+  let dir = getTempDir() / "crafter-replay-tests"
+  removeDir(dir)
+  createDir(dir)
 
-  test "28. record then re-derive, EVERY end reason":
-    ## gauntletComplete, turnCap, wallClock AND fault — not just the healthy
-    ## one (the particle-worlds 2026-08-26 scar: a deadline-ended replay
-    ## hash-mismatched at the stop tick because the stop was inferred rather
-    ## than recorded).
-    for (label, stopAfter, rule) in [("gauntletComplete", -1, edGauntletComplete),
-                                     ("turnCap", 14, edTurnCap),
-                                     ("wallClock", 9, edWallClock),
-                                     ("fault", 4, edFault)]:
-      echo "  end reason case: ", label
-      let path = getTempDir() / ("crafter-" & label & ".replay")
-      removeFile(path)
-      let recorded = recordEpisode(path, testConfig(), stopAfter, rule)
-      let derived = rederive(path)
-      check derived.mismatch == -1
-      check derived.sim.tickCount == recorded.tickCount
-      check derived.sim.gameHash() == recorded.gameHash()
-      check derived.sim.endRule == recorded.endRule
-      check derived.sim.endReason == recorded.endReason
-      check derived.sim.tasksSolved() == recorded.tasksSolved()
-      check derived.sim.score() == recorded.score()
+  test "record then re-derive, EVERY end reason":
+    ## Item 31, including the STOP TICK (the particle-worlds scar).
+    for rule in [edDeath, edAllUnlocked, edTurnCap, edTickCap, edWallClock,
+                 edFault]:
+      let path = dir / ("end-" & $rule & ".replay")
+      let recorded = recordEpisode(rule, path)
+      let played = rederive(path)
+      check played.mismatch == -1
+      check played.sim.tickCount == recorded.sim.tickCount
+      check played.sim.gameHash() == recorded.sim.gameHash()
+      check played.sim.endRule == recorded.sim.endRule
+      check played.sim.endReason == recorded.sim.endReason
+      check played.sim.achievementsUnlocked() ==
+        recorded.sim.achievementsUnlocked()
 
-  test "29. the replay is self-sufficient":
-    let path = getTempDir() / "crafter-selfsufficient.replay"
-    removeFile(path)
-    let recorded = recordEpisode(path, testConfig("xland", 7))
-    let data = parseReplayBytes(readFile(path))
-    check data.gameName == GameName
-    check data.gameVersion == GameVersion
-    ## The seat's real name, its alias and the policy kind.
-    check data.joins.len == 1
-    check data.joins[0].name == "scout"
-    var sawRegister = false
-    var sawResult = false
-    for chat in data.chats:
-      let node = parseJson(chat.message)
-      case node["k"].getStr()
-      of "register":
-        sawRegister = true
-        check node["alias"].getStr() == "Alpha"
-        check node["kind"].getStr() == "scripted"
-      of "result":
-        sawResult = true
-        check node["results"]["variant"].getStr() == "xland"
-      else: discard
-    check sawRegister
-    check sawResult
-    ## The full config: every constant §Server's config-JSON row lists.
+  test "the replay is self-sufficient":
+    ## Item 32: the bytes alone yield the name, the alias, the policy kind,
+    ## the whole config, the seed, the variant, every plan and the result.
+    let path = dir / "self.replay"
+    discard recordEpisode(edDeath, path, say = "chopping the tree at (30,28)")
+    let data = loadReplay(path)
     let config = parseJson(data.configJson)
-    for key in ["seed", "variant", "num_agents", "gridSize", "viewSize",
-                "turnTicks", "taskTurnCap", "taskCount", "taskLadder",
-                "maxTurns", "maxTicks", "parTasks", "obstacleCount",
-                "xlandRules", "xlandObjects", "babyaiObjects",
-                "maxActionsPerTurn", "macroPrimitiveCap", "spinTurns",
+    for key in ["seed", "variant", "num_agents", "worldSize", "viewSize",
+                "regionSize", "turnTicks", "maxTurns", "maxTicks", "dayLength",
+                "dayFraction", "mountainThreshold", "maxCows", "maxZombies",
+                "maxSkeletons", "foodTicks", "drinkTicks", "energyTicks",
+                "regenTicks", "starveTicks", "plantRipenTicks",
+                "parAchievements", "maxActionsPerTurn", "macroPrimitiveCap",
                 "players", "slots", "fastMode"]:
       check config.hasKey(key)
-    ## `tokens` is deliberately ABSENT — a replay is a public artifact.
+    ## `tokens` is deliberately absent — a replay is a public artifact.
     check not config.hasKey("tokens")
-    ## Re-simulating from the bytes alone reproduces every layout and every
-    ## mission sentence with NO fetch.
-    let derived = rederive(path)
-    check derived.mismatch == -1
-    for i in 0 ..< recorded.records.len:
-      check derived.sim.records[i].mission == recorded.records[i].mission
-      check derived.sim.records[i].family == recorded.records[i].family
+    check data.joins.len == 1
+    check data.joins[0].name == "forager"
+    var kinds = 0
+    var plans = 0
+    var says = 0
+    var results = 0
+    for chat in data.chats:
+      let record = parseJson(chat.message)
+      case record{"k"}.getStr()
+      of "register":
+        inc kinds
+        check record{"kind"}.getStr() == "scripted"
+        check record{"alias"}.getStr() == "Alpha"
+        ## The PROMPT is never written.
+        check not record.hasKey("prompt")
+      of "directive":
+        inc plans
+        if record{"say"}.getStr().len > 0: inc says
+      of "result":
+        inc results
+        check record{"results"}{"achievementsOf"}.getInt() == AchievementCount
+      else: discard
+    check kinds == 1
+    check plans > 0
+    check says > 0
+    check results == 1
+    ## Re-simulating from the bytes reproduces the WHOLE world with no fetch.
+    let played = rederive(path)
+    let reference = generate(config["seed"].getInt(),
+                             config["mountainThreshold"].getInt())
+    var same = 0
+    for slot in 0 ..< WorldCells:
+      if played.sim.world.cells[slot] == reference.cells[slot]: inc same
+    check same > WorldCells - 200        ## only the cells the cog changed
 
-  test "30. replay_summary is strict UTF-8 JSON":
-    ## Every capped field filled to exactly its cap with 4-byte emoji.
-    let path = getTempDir() / "crafter-emoji.replay"
-    removeFile(path)
-    var config = testConfig()
-    var sim = initSimServer(config)
-    var writer = openReplayWriter(path, config.resolvedJson())
-    writer.writeJoin(tickTime(0), 0, "crafter-cartographer", 0, "token-0")
-    var emoji = ""
-    for i in 0 ..< 400:
-      emoji.add("\xF0\x9F\xA7\xA9")
-    var directive = Directive(source: dsLlm, say: sanitizeSay(emoji),
-                              notes: sanitizeNote(emoji))
-    directive.actions.add(Action(kind: akGoto, x: 6, y: 3))
-    check directive.say.runeLen == MaxSayRunes
-    check directive.notes.runeLen == MaxNoteRunes
-    writer.writeChat(tickTime(1), 0, registerRecord(0, "Alpha",
-      "crafter-cartographer", "llm", ""))
-    writer.writeChat(tickTime(2), 0, boundedDirectiveRecord(directive, 1, 0, 0,
-      "Alpha", @[pForward], true, 2, 1, nil))
-    writer.writeChat(tickTime(3), 0, fallbackRecord(1, 2, "timeout", emoji))
-    sim.phase = Playing
-    sim.startTask(0)
-    sim.finish(erComplete, edGauntletComplete)
-    writer.writeChat(tickTime(4), 0, resultRecord(sim))
-    writer.writeHash(1'u32, 0'u64)
-    writer.closeReplayWriter()
+  test "the incremental terrain digest equals a full fold":
+    ## Item 33: the optimisation of §Determinism point 4 is only safe if this
+    ## holds after a whole episode of mining and placing.
+    let sim = playScripted(testConfig(), blForager)
+    check sim.terrainHash == sim.world.terrainDigest()
+    check sim.blocksMined + sim.blocksPlaced > 0
 
-    let summary = execProcess("python3 " & repoRoot() &
-      "/tools/replay_summary.py " & path)
-    ## A STRICT UTF-8 JSON parser must accept it, with no lone surrogates.
-    check summary.validateUtf8() == -1
-    let parsed = parseJson(summary)
-    check parsed["protocol"].getStr() == "crafter/v1"
-    check parsed["gameVersion"].getStr() == GameVersion
-    check parsed["plans"].len == 1
-    check parsed["says"].len == 1
-    check parsed["says"][0].getStr().runeLen == MaxSayRunes
-    check parsed["fallbacks"].getInt() == 1
-    check parsed["results"]["reason"].getStr() == "complete"
+  test "replay_summary is strict UTF-8 JSON at every cap":
+    ## Item 34: every capped field filled to EXACTLY its cap with 4-byte
+    ## emoji.
+    var say = ""
+    for i in 0 ..< MaxSayRunes:
+      say.add("\u{1F9E9}")
+    var notes = ""
+    for i in 0 ..< MaxNoteRunes:
+      notes.add("\u{1F9E9}")
+    check say.runeLen == MaxSayRunes
+    let path = dir / "emoji.replay"
+    discard recordEpisode(edDeath, path, say = say, notes = notes)
+    let run = execCmdEx("python3 " & repoRoot() /
+      "tools/replay_summary.py " & path)
+    check run.exitCode == 0
+    ## A STRICT UTF-8 JSON parse, with no lone surrogates.
+    let strict = execCmdEx("python3 -c " & quoteShell(
+      "import json,sys;" &
+      "raw=open(sys.argv[1],'rb').read();" &
+      "text=raw.decode('utf-8');" &
+      "doc=json.loads(text);" &
+      "assert all(not (0xD800 <= ord(c) <= 0xDFFF) for c in text);" &
+      "print(doc['protocol'])") & " " & quoteShell(dir / "summary.json"))
+    writeFile(dir / "summary.json", run.output)
+    let verify = execCmdEx("python3 -c " & quoteShell(
+      "import json,sys;" &
+      "raw=open(sys.argv[1],'rb').read();" &
+      "text=raw.decode('utf-8');" &
+      "doc=json.loads(text);" &
+      "assert all(not (0xD800 <= ord(c) <= 0xDFFF) for c in text);" &
+      "print(doc['protocol'])") & " " & quoteShell(dir / "summary.json"))
+    check verify.exitCode == 0
+    check verify.output.strip() == "crafter/v1"
+    discard strict
+    let summary = parseJson(run.output)
+    check summary["protocol"].getStr() == "crafter/v1"
+    check summary["gameVersion"].getStr() == GameVersion
+    check summary["says"].len > 0
+    for entry in summary["says"]:
+      check entry.getStr().runeLen <= MaxSayRunes
 
-  test "31. determinism from the replay alone":
-    let path = getTempDir() / "crafter-determinism.replay"
-    removeFile(path)
-    let recorded = recordEpisode(path, testConfig("gauntlet", 907))
-    for attempt in 0 .. 2:
-      let derived = rederive(path)
-      check derived.mismatch == -1
-      check derived.sim.tickCount == recorded.tickCount
-      check derived.sim.tasksSolved() == recorded.tasksSolved()
-      check derived.sim.progressTotal() == recorded.progressTotal()
-      check derived.sim.gameHash() == recorded.gameHash()
+  test "determinism from the replay alone":
+    ## Item 35.
+    let path = dir / "determinism.replay"
+    let recorded = recordEpisode(edDeath, path)
+    let first = rederive(path)
+    let second = rederive(path)
+    check first.sim.gameHash() == second.sim.gameHash()
+    check first.sim.tickCount == second.sim.tickCount
+    for a in Achievement:
+      check first.sim.ledger.unlocked[a] == recorded.sim.ledger.unlocked[a]
+      check first.sim.ledger.tick[a] == recorded.sim.ledger.tick[a]
 
-  test "32. every committed fixture carries the current GameVersion":
-    ## The starter's sweep over tests/, kept: a fixture recorded against older
-    ## rules fails the build rather than silently replaying wrong gameplay.
+  test "every committed fixture carries the current GameVersion":
+    ## Item 36: the starter's sweep over `tests/replays`.
+    let fixtures = repoRoot() / "tests" / "replays"
     var swept = 0
-    for path in walkDirRec(repoRoot() / "tests"):
-      if not path.endsWith(".replay"):
+    for kind, path in walkDir(fixtures):
+      if kind != pcFile or not path.endsWith(".replay"):
         continue
       inc swept
-      let data = parseReplayBytes(readFile(path))
-      check data.gameVersion == GameVersion
+      let data = loadReplay(path)
       check data.gameName == GameName
-    ## The sweep itself must be exercised, so record one in place if the
-    ## fixtures directory is empty.
-    if swept == 0:
-      let path = repoRoot() / "tests" / "replays" / "gauntlet-seed42.replay"
-      check fileExists(path) or true
+      check data.gameVersion == GameVersion
+      ## And it still re-derives cleanly under the CURRENT rules.
+      let played = rederive(path)
+      check played.mismatch == -1
+    check swept >= 1
+
+  test "the beat timeline and the lull map draw at full width on frame one":
+    let path = dir / "beats.replay"
+    discard recordEpisode(edDeath, path)
+    let data = loadReplay(path)
+    var runtime = initReplayRuntime(data, mismatchQuit = false,
+                                    gameEventLoggingEnabled = false)
+    runtime.player.buildReplayKeyframes(initSimServer(runtime.config))
+    check runtime.player.scanComplete()
+    check runtime.player.leadSeries.len >= 2
+    check runtime.player.beatEvents.len >= 1
+    ## Only the seven documented beat kinds ever reach the scrubber.
+    for event in runtime.player.beatEvents:
+      check event["k"].getStr() in ["achievement", "nightfall", "daybreak",
+                                    "kill", "death", "fallback", "end"]
+
+  removeDir(dir)

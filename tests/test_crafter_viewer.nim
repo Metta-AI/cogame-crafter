@@ -10,9 +10,12 @@ const
     "7ace7287e0d19bf0fddb2362c55e4d76dfb44adcd4fbc8d1743b0557ced72f7c"
   ## The exact ids the design note lists as REMOVED, and the exact ids it
   ## lists as KEPT.
-  RemovedIds = ["viewpanel", "minimap", "zoombar", "zoom-in", "zoom-out",
-                "zoom-slider", "zoom-read", "povBadge", "fpv-hp", "fpv-gear",
-                "fpv-map", "fpv-map-canvas"]
+  RemovedIds = ["povBadge", "fpv-hp", "fpv-gear", "fpv-map", "fpv-map-canvas"]
+  ## #viewpanel is KEPT — zoom bar, minimap and all: the world is 64 x 64
+  ## cells (1536 x 1536 native px) and the default view shows fifteen of them,
+  ## so this board genuinely is larger than the frame.
+  ViewpanelIds = ["viewpanel", "minimap", "minimap-canvas", "zoombar",
+                  "zoom-in", "zoom-out", "zoom-slider", "zoom-read"]
   KeptIds = ["viewport", "stage", "board", "lightpool", "grain", "lockerroom",
              "lk-bg", "lk-art", "lk-sprites", "lk-cap", "chrome", "scorebug",
              "plates-l", "plates-r", "clock", "clock-time", "clock-caption",
@@ -25,7 +28,7 @@ const
              "ec-headline", "ec-wincond", "ec-how", "ec-teams", "ec-replay",
              "status"]
   ## The beat kinds this sim emits, and no others.
-  BeatKinds = ["taskstart", "solved", "failed", "unlock", "produce",
+  BeatKinds = ["achievement", "nightfall", "daybreak", "kill", "death",
                "fallback", "end"]
 
 proc sha256Hex(data: string): string =
@@ -104,13 +107,13 @@ suite "crafter viewer":
     let split = page.find(banner)
     ## Everything the block adds comes AFTER the banner.
     check "window.CrafterChrome" in page[split .. ^1]
-    check "function mgBeat" in page[split .. ^1]
+    check "function cfBeat" in page[split .. ^1]
     ## The starter's own splice hook, with the same entry points and
     ## signatures.
     check "CrafterChrome.install(PB_CTX)" in page
     check "install: function (ctx)" in page[split .. ^1]
-    check "frame: mgFrame" in page[split .. ^1]
-    check "event: mgEvent" in page[split .. ^1]
+    check "frame: cfFrame" in page[split .. ^1]
+    check "event: cfEvent" in page[split .. ^1]
     ## The inherited chrome, untouched, sits BEFORE the banner.
     let prefix = page[0 ..< split]
     for marker in ["function relayout()", "window.ChromeCommon", "renderTransport",
@@ -159,7 +162,7 @@ suite "crafter viewer":
     for alias in aliases:
       check ("function " & alias & "(") notin block0
       check ("var " & alias & " =") notin block0
-    check "function mgBeat" in block0
+    check "function cfBeat" in block0
 
   test "38. beat CSS matches EXACTLY the emitted kinds":
     var css: seq[string]
@@ -207,10 +210,17 @@ suite "crafter viewer":
     check ".plate-name {" in block0
     check "flex: 1 1 auto;" in block0
     check "min-width: 3.2em;" in block0
-    for rule in ["#stage.tiny .plate .mg-alias", "#stage.tiny #mg-ribbon",
-                 "#stage.tiny #mg-pips", "#stage.tiny #fpv",
-                 "#stage.tiny #fpv-grip"]:
+    for rule in ["#stage.tiny .plate .cf-alias", "#stage.tiny #cf-inv",
+                 "#stage.tiny #cf-checklist", "#stage.tiny #cf-vitals",
+                 "#stage.tiny #zoombar", "#stage.tiny #minimap",
+                 "#stage.tiny #fpv", "#stage.tiny #fpv-grip",
+                 "#stage.tiny #board", "#stage.tiny #killfeed"]:
       check rule in block0
+    ## The right-gutter arithmetic: 56 + 8 + 56 = 120 px, exactly the gutter
+    ## height a 360 x 203 embed leaves beside a square board.
+    check "width: 56px !important" in block0
+    check "gap: 8px" in block0
+    check 56 + 8 + 56 == 120
     ## The starter's own 360 px engineering, kept verbatim.
     check "Math.max(0.5, Math.min(1.6, boardW / 760))" in page
     check "stage.classList.toggle('tiny', boardW <= 620)" in page
@@ -219,11 +229,48 @@ suite "crafter viewer":
       check ("id=\"" & name & "\"") notin page
       check ("#" & name) notin page
       check ("'" & name & "'") notin page
-    for name in KeptIds:
+    for name in @KeptIds & @ViewpanelIds:
       check ("id=\"" & name & "\"") in page
 
-  test "41. the label manifest is regenerated with any label change":
+  test "40. #viewpanel is KEPT and wired to a follow-cam":
+    ## The pin says the zoom bar and minimap exist only for boards larger than
+    ## the frame. This one is: 64 x 64 cells at 24 px is a 1536 x 1536 board
+    ## and the default view shows fifteen cells.
+    for name in ViewpanelIds:
+      check ("id=\"" & name & "\"") in page
+    check "core.attachMinimap($('minimap-canvas'))" in page
+    check "window.CF_CORE = core;" in page
+    let split = page.find("CRAFTER additions to the inherited coworld-ctf chrome")
+    let block0 = page[split .. ^1]
+    ## zoom = worldSize / cellsAcross, applied once per board, and panTo on
+    ## every frame while follow is armed.
+    check "core.setZoom(world / cfCameraCells)" in block0
+    check "cfCameraCells = 15" in block0
+    check "core.panTo(" in block0
+    ## A user pan disarms the follow-cam; the starter's own resetView()
+    ## binding re-arms it.
+    check "function cfDisarm()" in block0
+    check "armFollow" in block0
+    check "window.CrafterChrome.armFollow()" in page
+    ## #zoom-read shows the cells across, not FIT.
+    check "' CELLS'" in block0
+    check ">FIT<" notin page
+
+  test "41. no canvas text on the board layer":
+    ## Every string this viewer draws is DOM chrome or is drawn inside a
+    ## fixed-size gutter panel, which is what lets --strict-text-bounds stay
+    ## ON for a PANNABLE board.
+    let split = page.find("CRAFTER additions to the inherited coworld-ctf chrome")
+    let block0 = page[split .. ^1]
+    check "fillText" notin block0
+    check "strokeText" notin block0
+    ## The compositor's own board path draws sprites, never glyphs.
+    check "fillText" notin core
+    check "strokeText" notin core
+
+  test "42. the label manifest is regenerated with any label change":
     let committed = readRepo("tests/label_manifest.txt")
     check committed == labelManifest()
     check "Alpha" in boardLabels()
-    check "LAVAGAP" in boardLabels()
+    check "collect_diamond" in boardLabels()
+    check "zombie" in boardLabels()

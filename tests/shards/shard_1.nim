@@ -1,1 +1,1 @@
-import test_crafter_sim
+import test_crafter_world, test_crafter_sim
