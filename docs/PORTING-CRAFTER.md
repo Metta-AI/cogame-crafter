@@ -373,3 +373,16 @@ walks it by kind pass regardless, `creatureAt` is a position lookup and
 creatures never share a cell, and the baselines pick by distance. Sorting the
 at-most-three by `(y, x)` would change every recorded `gameHash` — the hash
 mixes the array in order — for no behavioural difference at all.
+
+### P. Two small formula differences, stated because they are visible in the source
+
+- The sapling draw is `mix64(seed, 600, idx(x, y), tick) mod 10 == 0` where the
+  note writes `mix64(seed, 600, x, y, tick) mod 10`. Same 1-in-10 rate, same
+  determinism, one fewer mixed word: `idx(x, y)` is the cell's slot index, so
+  the draw is still a pure function of `(seed, cell, tick)`.
+- When the cell a skeleton would put its arrow into IS the cog's cell, the
+  2 damage is applied on the spot with `by: ckArrow` instead of spawning an
+  arrow object that enters the cell on the next tick. The damage, its amount
+  and `deathCause = arrow` are what the note specifies; the intermediate object
+  is elided because an arrow that spawns inside the cog would have to resolve
+  its own entry rule against the cell it was born in.
