@@ -696,6 +696,16 @@ proc landmarksJson(sim: SimServer): JsonNode =
       "x": row.slot mod WorldSize, "y": row.slot div WorldSize, "d": row.d,
       "seen_tick": sim.knownMap.cells[row.slot].seenTick})
 
+proc hostileCells*(sim: SimServer): seq[int] =
+  ## The cells of hostiles CURRENTLY in `threats`. The `goto` BFS refuses to
+  ## route through them, which is what keeps a plan from walking into a
+  ## zombie the seat can already see.
+  for creature in sim.herd.list:
+    if creature.alive and creature.kind in {ckZombie, ckSkeleton} and
+        chebyshev(creature.x, creature.y, sim.cog.x, sim.cog.y) <=
+          ViewSize div 2:
+      result.add(idx(creature.x, creature.y))
+
 proc threatsJson*(sim: SimServer): JsonNode =
   ## Every creature CURRENTLY in the 9 x 9 view. Creatures are never
   ## remembered outside the view.

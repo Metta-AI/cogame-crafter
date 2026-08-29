@@ -54,14 +54,6 @@ proc parseBaseline*(text: string): Baseline =
   of "wanderer", "wander": blWanderer
   else: blForager
 
-proc hostileSlots(sim: SimServer): seq[int] =
-  ## The cells of hostiles currently in `threats`. The BFS refuses to route
-  ## through them.
-  for creature in sim.herd.list:
-    if creature.alive and creature.kind in {ckZombie, ckSkeleton} and
-        chebyshev(creature.x, creature.y, sim.cog.x, sim.cog.y) <= ViewSize div 2:
-      result.add(idx(creature.x, creature.y))
-
 proc nearestThreat(sim: SimServer, kinds: set[CreatureKind]):
     tuple[found: bool; x, y, d: int] =
   var best = -1
@@ -190,7 +182,7 @@ proc foragerPlan*(sim: SimServer, params = DefaultBaselineParams): Directive =
       result.addPrimitive(akDo, 3)
       finishTurn(false)
     ## Back away: walk to the reachable known cell farthest from the hostile.
-    let search = sim.knownMap.bfs(sim.cog.x, sim.cog.y, sim.hostileSlots())
+    let search = sim.knownMap.bfs(sim.cog.x, sim.cog.y, sim.hostileCells())
     var
       bestSlot = -1
       bestScore = -1

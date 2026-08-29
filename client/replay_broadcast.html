@@ -621,7 +621,136 @@ html, body {
   text-overflow: ellipsis;
   max-width: 45%;
 }
-.fpv-name { color: var(--tc, var(--paper)); }
+.fpv-name { color: var(--tc, var(--paper)); }/* ---------- 4b. VIEW CONTROLS (zoom + minimap) ----------
+   One group, top-right, under the reserved scorebug band: the minimap sits
+   directly over the control that summoned it, so "where am I" and "how far in
+   am I" read as a single instrument instead of two scattered widgets.
+   The board is NOT scroll-zoomed — a trackpad two-finger scroll belongs to the
+   page — so these controls are the primary way in, not a fallback, and they are
+   always present. The minimap only appears once there is something off-screen
+   to locate (zoom > 1); at fit it would just be the board again, smaller. */
+#viewpanel {
+  position: absolute;
+  top: calc(var(--topband, 0px) + 10 * var(--u));
+  right: calc(12 * var(--u));
+  z-index: 11;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: calc(5 * var(--u));
+  font-family: var(--pixfont);
+  /* Minimap and zoom bar share ONE width so the pair reads as a single stacked
+     instrument rather than two overlays that happen to be near each other.
+     The px floor is a TOUCH floor: chrome otherwise scales with the embed, and
+     a 300px-wide Observatory card would shrink the buttons below a fingertip. */
+  --viewpanel-w: max(calc(178 * var(--u)), 132px);
+}
+
+/* Board minimap. Aspect + display come from the STREAMED board's real w/h
+   (syncMinimapShape), because a four-team board is square and a fixed 1.874:1
+   inset would squash it. See-through so it reads as an overlay on play. */
+#minimap {
+  position: relative;
+  width: var(--viewpanel-w);
+  aspect-ratio: 1235 / 659;
+  background: rgba(8, 5, 3, 0.5);
+  box-shadow: 0 0 0 1px rgba(232, 163, 61, 0.3);
+  overflow: hidden;
+  cursor: crosshair;
+  display: none;
+}
+#minimap.on { display: block; }
+#minimap canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/* The label rides INSIDE the frame rather than adding a header row above it —
+   one element, not two stacked boxes. */
+#minimap .mm-cap {
+  position: absolute;
+  left: calc(4 * var(--u));
+  bottom: calc(2 * var(--u));
+  font-size: calc(7 * var(--u));
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+  text-shadow: 0 1px 2px rgba(8, 5, 3, 0.9);
+  pointer-events: none;
+}
+
+#zoombar {
+  display: flex;
+  align-items: center;
+  gap: calc(5 * var(--u));
+  width: var(--viewpanel-w);
+  padding: calc(3 * var(--u)) calc(5 * var(--u));
+  /* Opaque enough that the buttons keep their contrast over pale concrete —
+     a control you have to hunt for on a bright floor is not a control. */
+  background: rgba(12, 9, 6, 0.82);
+  box-shadow: 0 0 0 1px rgba(232, 163, 61, 0.22);
+}
+.zbtn {
+  font-family: var(--pixfont);
+  font-size: calc(14 * var(--u));
+  line-height: 1;
+  color: var(--paper);
+  background: rgba(242, 232, 216, 0.08);
+  border: none;
+  flex: none;
+  width: max(calc(20 * var(--u)), 22px);
+  height: max(calc(18 * var(--u)), 20px);
+  cursor: pointer;
+  padding: 0;
+}
+.zbtn:hover { background: rgba(242, 232, 216, 0.22); }
+.zbtn:disabled { opacity: 0.3; cursor: default; background: rgba(242, 232, 216, 0.05); }
+/* Zoom is geometric (1x..12x); the slider's travel is the LOG of it, so equal
+   thumb movement is equal perceived zoom rather than a dead left half. */
+#zoom-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  margin: 0;
+  height: calc(2 * var(--u));
+  background: rgba(242, 232, 216, 0.22);
+  cursor: pointer;
+}
+#zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: calc(9 * var(--u));
+  height: calc(13 * var(--u));
+  background: var(--amber);
+  cursor: grab;
+}
+#zoom-slider::-moz-range-thumb {
+  width: calc(9 * var(--u));
+  height: calc(13 * var(--u));
+  border: none;
+  border-radius: 0;
+  background: var(--amber);
+  cursor: grab;
+}
+#zoom-slider:focus-visible { outline: 1px solid var(--amber); outline-offset: calc(3 * var(--u)); }
+/* Never a bare number: the readout carries its unit, and "FIT" names the state
+   the board opens in instead of showing a meaningless 1.0x. */
+#zoom-read {
+  font-size: max(calc(9 * var(--u)), 9px);
+  letter-spacing: 0.06em;
+  color: var(--paper-dim);
+  flex: none;
+  width: max(calc(26 * var(--u)), 26px);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+#zoom-read.zoomed { color: var(--amber); }
+
+/* ---------- 5. TRANSPORT ---------- */
 #transport {
   position: absolute;
   left: 0; right: 0; bottom: 0;
@@ -705,7 +834,8 @@ html, body {
   z-index: 2;
 }
 /* kill ticks are short and colored by the KILLER's team (a red tick = red
-   scored a kill);/* winner cap: a flat block just past the track's right end, colored by the
+   scored a kill); team-kills and unattributable pileups stay neutral. */
+.beat-marker.kill { background: var(--tc, var(--paper-dim)); height: calc(6 * var(--u)); }/* winner cap: a flat block just past the track's right end, colored by the
    verdict (split for a draw), so the scrubber itself says how this ends. */
 .scrub-win {
   display: none;
@@ -1220,7 +1350,17 @@ body[data-embed] #transport,
 body[data-embed] #lightpool,
 body[data-embed] #grain,
 body[data-embed] #status { display: none !important; }
-body[data-embed] #board { top: 0; height: 100%; }</style>
+body[data-embed] #board { top: 0; height: 100%; }
+
+/* Opt-OUT of the #viewpanel overlay (zoom bar + minimap) by param only:
+   ?viewpanel=0 sets body[data-noviewpanel]. Defaults are unchanged everywhere
+   — the League Replayer shell loads the board with ?embed=1 and KEEPS zoom +
+   minimap (that's why #271 blanket-hiding the panel in all embeds was reverted
+   in #272). Only surfaces that explicitly ask — billboards (Lobby hero) and
+   thumbnail capture — append &viewpanel=0 to drop the panel. Independent of
+   embed: the two params don't touch each other. */
+body[data-noviewpanel] #viewpanel { display: none !important; }
+</style>
 </head>
 <body>
 <div id="viewport">
@@ -1240,7 +1380,7 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
       <div class="lk-sprites" id="lk-sprites"></div>
     </div>
     <div class="lk-glow" aria-hidden="true"></div>
-    <div class="lk-cap" id="lk-cap" aria-hidden="true">Reading the mission&hellip;</div>
+    <div class="lk-cap" id="lk-cap" aria-hidden="true">Generating the world&hellip;</div>
     <div class="lk-bar" aria-hidden="true"><i></i></div>
     <div class="lk-sub">Bot locker room &middot; Loading replay</div>
   </div>
@@ -1266,12 +1406,25 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
       <div class="plates" id="plates-r"></div>
     </div>
 
-    <!-- CRAFTER: the view-controls panel is REMOVED. The board is a fixed
-         13x13 cell grid with no off-frame area — relayout() letterboxes it
-         whole at every width — so there is nothing to zoom into and nothing
-         for a minimap to locate. -->
+    <!-- View controls: zoom the board with buttons/slider/keys/pinch (never a
+         plain scroll — that belongs to the page), and once zoomed, a minimap
+         with a white view box says which part of the board you are holding.
+         Click or drag the minimap to jump the view there. -->
+    <div id="viewpanel">
+      <div id="minimap" title="Click or drag to move the view">
+        <canvas id="minimap-canvas"></canvas>
+        <span class="mm-cap">View</span>
+      </div>
+      <div id="zoombar" role="group" aria-label="Board zoom">
+        <button class="zbtn" id="zoom-out" title="Zoom out (x)" aria-label="Zoom out">&minus;</button>
+        <input id="zoom-slider" type="range" min="0" max="1000" step="1" value="0"
+               aria-label="Board zoom" aria-valuetext="Fitted">
+        <button class="zbtn" id="zoom-in" title="Zoom in (z)" aria-label="Zoom in">+</button>
+        <span id="zoom-read" aria-live="off">15 CELLS</span>
+      </div>
+    </div>
 
-    <div id="mmwarn">Replay hash mismatch — showing recorded actions</div>
+    <div id="mmwarn">Replay hash mismatch at tick N — showing recorded actions</div>
     <!-- CRAFTER: the POV badge is REMOVED — one seat, nothing to select. -->
     <!-- First-person picture-in-picture: the selected seat's Wolfenstein-style
          raycast view, shown only while a player is in POV. A window into what
@@ -1289,7 +1442,7 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
       <!-- CRAFTER: the un-fogged tactical inset is REMOVED — the main
            board already IS the un-fogged view; this panel now draws the
            agent's own 7x7 window instead. -->
-      <div class="fpv-cap" id="fpv-cap">AGENT VIEW 7×7</div>
+      <div class="fpv-cap" id="fpv-cap">AGENT VIEW 9×9</div>
       <!-- corner grip: drag to resize (bottom-right so it clears the screen edge
            when the PiP is pinned bottom-left) -->
       <div class="fpv-grip" id="fpv-grip" title="Drag to resize"></div>
@@ -1308,7 +1461,7 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
         <button class="tbtn" id="btn-end" title="Jump to end (e)">|▸</button>
         <button class="tbtn" id="btn-loop" title="Loop (r)">↻</button>
         <button class="tbtn" id="btn-skip" title="Auto-skip lulls (f)">▸▸</button>
-        <button class="tbtn" id="btn-spoilers" title="Spoilers: solved / failed tasks on the timeline ahead of the playhead (o)">spoilers</button>
+        <button class="tbtn" id="btn-spoilers" title="Spoilers: achievements and the death on the timeline ahead of the playhead (o)">spoilers</button>
         <span class="ffwd-chip" id="ffwd-chip">▸▸ SKIPPING LULL</span>
         <span class="win-chip" id="win-chip"></span>
         <span class="tick-clock" id="tick-clock">0 / 0</span>
@@ -1320,7 +1473,7 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
              axis, so the playhead crosses it 1:1 with the timeline -->
         <svg class="momentum" id="momentum" viewBox="0 0 1000 100"
              preserveAspectRatio="none" aria-hidden="true"></svg>
-        <span class="momentum-label">PROGRESS</span>
+        <span class="momentum-label">ACHIEVEMENTS</span>
         <div class="scrub-track"></div>
         <div class="scrub-fill" id="scrub-fill"></div>
         <!-- lull shading rides ABOVE track+fill so the quiet stretches read
@@ -1488,7 +1641,7 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
   // CRAFTER: a DETACHED stand-in for an element this game removed. The
   // starter's wiring for those elements is kept verbatim and pointed here, so
   // it runs harmlessly and no removed id exists in the document.
-  function mgDetached(tag) { return document.createElement(tag); }
+  function cfDetached(tag) { return document.createElement(tag); }
   var viewport = $('viewport');
   var stage = $('stage');
   var canvas = $('board');
@@ -1581,14 +1734,14 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
 
     // rotating prep-talk line under the scene
     var lines = [
-      'Reading the mission…',
-      'Counting the cells you can see…',
-      'Colour-checking the keys…',
-      'Listening for the door…',
-      'Mapping the dark from memory…',
-      'Measuring the gap in the lava…',
-      'Turning to face the unknown…',
-      'Five tasks. Eleven turns each…'
+      'Generating the world…',
+      'Salting the mountain with iron…',
+      'Filling the lake…',
+      'Planting the forest…',
+      'Burying one diamond, very deep…',
+      'Waking the cows…',
+      'Counting the hours until dark…',
+      'Twenty-two things you have never done…'
     ];
     var capEl = $('lk-cap'), capIx = 0;
     lockerCapTimer = setInterval(function () {
@@ -1624,7 +1777,15 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
   try { EMBED = new URLSearchParams(location.search).get('embed') === '1'; } catch (e) {}
   if (EMBED) document.body.setAttribute('data-embed', '1');
 
-  // CRAFTER: the opt-out param goes with the panel it hid.
+  // ?viewpanel=0 hides the #viewpanel overlay (zoom bar + minimap). This is an
+  // explicit opt-OUT only — the default (param absent) is unchanged for every
+  // existing embed, so the League Replayer still shows zoom + minimap. See the
+  // #271/#272 lesson: hiding the panel for ALL embeds broke the Replayer shell.
+  // Billboards (Lobby hero) and thumbnail capture append &viewpanel=0.
+  try {
+    if (new URLSearchParams(location.search).get('viewpanel') === '0')
+      document.body.setAttribute('data-noviewpanel', '1');
+  } catch (e) {}
 
   // Tick deep-link (?t=<tick>): seek there on load, paused, via the same s:
   // command the scrubber uses (the sim clamps out-of-range ticks). One-shot,
@@ -1964,7 +2125,7 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
           '<div class="lives-line">' +
           '<span class="team-name plate-name" id="name-' + team + '">' + team.toUpperCase() + '</span>' +
           '<span class="hcap" id="hcap-' + team + '" style="display:none"></span>' +
-          '<span class="solved-label pb-lbl">Carrying</span>' +
+          '<span class="vital-label pb-lbl">Carrying</span>' +
           '<span class="lives-num" id="lives-' + team + '">—</span>' +
           '</div>' +
           '<div class="pb-sub">' +
@@ -1981,7 +2142,7 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
         '<div class="lives-line">' +
         '<span class="team-name" id="name-' + team + '">' + team.toUpperCase() + '</span>' +
         '<span class="hcap" id="hcap-' + team + '" style="display:none"></span>' +
-        '<span class="solved-label">Solved</span>' +
+        '<span class="vital-label">Health</span>' +
         '<span class="lives-num" id="lives-' + team + '">—</span>' +
         '</div>' +
         '<div class="squad" id="squad-' + team + '"></div>' +
@@ -2089,7 +2250,7 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
 
   // ---------- pov + mismatch ----------
   function renderPov(s) {
-    var badge = mgDetached('div');   // CRAFTER: POV badge removed
+    var badge = cfDetached('div');   // CRAFTER: POV badge removed
     badge.classList.toggle('on', s.pov >= 0);
     if (s.pov >= 0) badge.textContent = '👁 POV: ' + shortName(rosterName(s, s.pov)) + ' — click to clear';
     renderFpv(s);
@@ -3033,13 +3194,13 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
     nameEl.textContent = lastState ? shortName(rosterName(lastState, lastState.pov)) : '';
     // hp pips: fill = remaining, hollow = spent (cap the row so it never wraps)
     var maxHp = Math.max(self.hp || 0, 3);
-    var hpEl = mgDetached('span'), hpHtml = '';   // CRAFTER: no hit points
+    var hpEl = cfDetached('span'), hpHtml = '';   // CRAFTER: no hit points
     for (var i = 0; i < maxHp; i++) {
       hpHtml += '<i' + (i < self.hp ? '' : ' class="spent"') + '></i>';
     }
     hpEl.innerHTML = hpHtml;
     // gear: lives count, carried pickups, and the enemy-heart flag
-    var gearEl = mgDetached('span'), bits = [];   // CRAFTER: no gear
+    var gearEl = cfDetached('span'), bits = [];   // CRAFTER: no gear
     if (typeof self.lives === 'number') bits.push('×' + self.lives);
     (self.items || []).forEach(function (it) { bits.push(ITEM_LABEL[it] || it.toUpperCase()); });
     var html = bits.map(function (b) { return '<span>' + b + '</span>'; }).join('');
@@ -3051,7 +3212,7 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
   // hearts, present pickups, and the POV seat's vision wedge + bubble. Full
   // spatial context — deliberately NOT fog-limited — so the viewer always knows
   // where the EYES are looking and located.
-  var fpvMapEl = mgDetached('div'), fpvMapCanvas = mgDetached('canvas'),
+  var fpvMapEl = cfDetached('div'), fpvMapCanvas = cfDetached('canvas'),
       fpvMapCtx = null;   // CRAFTER: the tactical inset is removed
 
   // The playfield boundary, as a PATH. Everything that needs the field's extent
@@ -3527,16 +3688,16 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
         ? '<div class="ec-tname ' + team + '" id="ec-tname-' + team + '">' + team.toUpperCase() + '</div>' +
           '<div class="ec-lives">' +
           '<span class="fl-num ' + team + '" id="ec-' + team + '">0:00</span>' +
-          '<span class="fl-cap">Cells seen</span>' +
+          '<span class="fl-cap">Ticks survived</span>' +
           '</div>' +
-          '<div class="ec-thead"><span>Cog</span><span>Solved</span><span>Seen</span><span>Score</span></div>' +
+          '<div class="ec-thead"><span>Cog</span><span>Unlocked</span><span>Survived</span><span>Score</span></div>' +
           '<div id="ec-rows-' + team + '"></div>'
         : '<div class="ec-tname ' + team + '" id="ec-tname-' + team + '">' + team.toUpperCase() + '</div>' +
           '<div class="ec-lives">' +
           '<span class="fl-num ' + team + '" id="ec-' + team + '">0</span>' +
-          '<span class="fl-cap">Tasks solved</span>' +
+          '<span class="fl-cap">Achievements</span>' +
           '</div>' +
-          '<div class="ec-thead"><span>Task</span><span>Mission</span><span>Result</span><span>Turns</span><span>Credits</span></div>' +
+          '<div class="ec-thead"><span>#</span><span>Achievement</span><span>Unlocked</span><span>Tick</span><span>Day</span></div>' +
           '<div id="ec-rows-' + team + '"></div>';
       wrap.appendChild(el);
     });
@@ -3891,13 +4052,11 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
     var bs = lastState && lastState.bs > 0 ? lastState.bs : 1;
     return PAN_CELL_MAP_PX * bs;
   }
-  // CRAFTER: the view-controls panel is removed, so its wiring — kept
-  // verbatim below — drives detached nodes and touches nothing on the page.
-  var minimapBox = mgDetached('div');
-  var zoomSlider = mgDetached('input');
-  var zoomRead = mgDetached('span');
-  var btnZoomIn = mgDetached('button');
-  var btnZoomOut = mgDetached('button');
+  var minimapBox = $('minimap');
+  var zoomSlider = $('zoom-slider');
+  var zoomRead = $('zoom-read');
+  var btnZoomIn = $('zoom-in');
+  var btnZoomOut = $('zoom-out');
   var sliderHeld = false;
   var lastMiniAspect = '';
 
@@ -3942,8 +4101,8 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
     if (!dragging) canvas.style.cursor = zoomed ? 'grab' : '';
   }
 
-  // CRAFTER: nothing to attach — broadcast_core.js tolerates never being
-  // attached (its surface stays null and its draw returns on the first guard).
+  window.CF_CORE = core;   // CRAFTER: the follow-cam drives this handle
+  core.attachMinimap($('minimap-canvas'));
 
   btnZoomIn.addEventListener('click', function () { core.zoomAt(ZOOM_STEP); });
   btnZoomOut.addEventListener('click', function () { core.zoomAt(1 / ZOOM_STEP); });
@@ -3991,6 +4150,9 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
   canvas.addEventListener('dblclick', function (ev) {
     ev.preventDefault();
     core.resetView();
+    if (window.CrafterChrome && window.CrafterChrome.armFollow) {
+      window.CrafterChrome.armFollow();
+    }
   });
 
   canvas.addEventListener('click', function (ev) {
@@ -4080,7 +4242,7 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
     pushFeed: pushFeed, banner: banner, togglePov: togglePov,
     getState: function () { return lastState; }
   };
-  window.MG_CTX = PB_CTX;
+  window.CF_CTX = PB_CTX;
   if (window.CrafterChrome) window.CrafterChrome.install(PB_CTX);
 
   relayout();
@@ -4092,19 +4254,25 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
      ============================================================
      Everything above this banner is the starter's broadcast page, edited only
      by the enumerated list in tools/build_broadcast_page.py: the elements the
-     design note removes (the view-controls panel, the POV badge, the hit-point pips,
-     the gear line and the un-fogged tactical inset), the spectator vocabulary
-     re-mapping table, and the CSS for beat kinds this game never emits.
+     design note removes (the POV badge, the hit-point pips, the gear line and
+     the un-fogged tactical inset), the spectator vocabulary re-mapping table,
+     and the CSS for beat kinds this game never emits.
+
+     #viewpanel IS KEPT — zoom bar, minimap and all. The world is 64x64 cells
+     (1536x1536 native px) and the default view shows 15 of them, so this board
+     genuinely is larger than the frame, which is exactly the condition the pin
+     names. The block arms a FOLLOW-CAM over it: core.setZoom(64 / cameraCells)
+     once per board and core.panTo on every frame while follow is armed; any
+     user pan disarms it and the starter's own resetView() re-arms it.
 
      Nothing here touches the transport band. relayout() still owns --hudscale,
      --topband and --band on :root; the endcard still stops above the band and
-     is still dismissed by every seek; and every
-     scrubber beat this block draws is a LABELLED, CLICKABLE BUTTON that seeks
-     on click, styled for EVERY kind this sim emits — taskstart, solved,
-     failed, unlock, produce, fallback and end. The builder carries an mg-
-     prefix precisely so it can never be shadowed by the chrome alias block's
-     own hoisted declaration of the shared markBeat (cogame-tandem,
-     2026-08-23).
+     is still dismissed by every seek; and every scrubber beat this block draws
+     is a LABELLED, CLICKABLE BUTTON that seeks on click, styled for EVERY kind
+     this sim emits — achievement, nightfall, daybreak, kill, death, fallback
+     and end, and no others. The builder carries a cf- prefix precisely so it
+     can never be shadowed by the chrome alias block's own hoisted declaration
+     of the shared markBeat (cogame-tandem, 2026-08-23).
      ============================================================ -->
 <style>
 /* --- scorebug: the single plate ---------------------------------------- */
@@ -4117,20 +4285,7 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.plate .mg-carry {
-  font-family: var(--pixfont);
-  font-size: calc(12 * var(--u));
-  line-height: 1;
-  min-width: calc(34 * var(--u));
-  text-align: center;
-  padding: calc(3 * var(--u)) calc(5 * var(--u));
-  background: rgba(12, 9, 6, 0.55);
-  box-shadow: inset 0 0 0 calc(1 * var(--u)) rgba(242, 232, 216, 0.14);
-  flex: none;
-  white-space: nowrap;
-}
-.plate .mg-carry.held { color: var(--amber); }
-.plate .mg-alias {
+.plate .cf-alias {
   font-family: var(--finefont);
   font-size: calc(8 * var(--u));
   letter-spacing: 0.16em;
@@ -4138,78 +4293,113 @@ body[data-embed] #board { top: 0; height: 100%; }</style>
   color: var(--paper-dim);
   white-space: nowrap;
 }
-.plate .mg-fb { color: var(--amber); font-family: var(--pixfont); }
+.plate .cf-fb { color: var(--amber); font-family: var(--pixfont); }
 
-/* --- the mission ribbon and the task pips ------------------------------ */
-/* Both sit in the BOARD region, under the reserved top band and clear of the
-   transport band; neither is ever positioned inside var(--band). */
-#mg-ribbon {
+/* --- vitals: four bars of nine pips on the plate ----------------------- */
+#cf-vitals {
   position: absolute;
   left: calc(8 * var(--u));
   top: calc(var(--topband, 0px) + 8 * var(--u));
-  width: min(38%, calc(300 * var(--u)));
-  z-index: 4;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: calc(2 * var(--u));
+  background: rgba(12, 10, 8, 0.66);
+  padding: calc(4 * var(--u)) calc(6 * var(--u));
   pointer-events: none;
-  background: linear-gradient(90deg, rgba(12, 10, 8, 0.82), rgba(12, 10, 8, 0));
-  padding: calc(5 * var(--u)) calc(8 * var(--u));
 }
-#mg-ribbon .mg-taskline {
+#cf-vitals .cf-vrow { display: flex; align-items: center; gap: calc(3 * var(--u)); }
+#cf-vitals .cf-vname {
   font-family: var(--finefont);
-  font-size: calc(9 * var(--u));
-  letter-spacing: 0.18em;
+  font-size: calc(7 * var(--u));
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--amber);
-  white-space: nowrap;
+  color: var(--paper-dim);
+  width: calc(30 * var(--u));
 }
-#mg-ribbon .mg-mission {
-  font-family: var(--dispfont, var(--finefont));
-  font-size: calc(12 * var(--u));
-  line-height: 1.25;
-  color: var(--paper);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
+#cf-vitals .cf-pips { display: flex; gap: calc(1 * var(--u)); }
+#cf-vitals .cf-pip {
+  width: calc(4 * var(--u));
+  height: calc(9 * var(--u));
+  background: rgba(242, 232, 216, 0.16);
 }
-#mg-pips {
+#cf-vitals .cf-vrow.health .cf-pip.on { background: var(--red); }
+#cf-vitals .cf-vrow.food .cf-pip.on { background: #56ba6a; }
+#cf-vitals .cf-vrow.drink .cf-pip.on { background: #4a80e0; }
+#cf-vitals .cf-vrow.energy .cf-pip.on { background: #a060d0; }
+#cf-vitals .cf-vrow.zero .cf-vname { color: var(--red); animation: cfpulse 1s ease-in-out infinite; }
+@keyframes cfpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* --- inventory strip: six resources + six tool chips -------------------- */
+#cf-inv {
   position: absolute;
   left: calc(8 * var(--u));
   top: calc(var(--topband, 0px) + 74 * var(--u));
+  z-index: 5;
   display: flex;
-  gap: calc(5 * var(--u));
-  z-index: 4;
+  flex-wrap: wrap;
+  gap: calc(3 * var(--u));
+  max-width: calc(180 * var(--u));
+  pointer-events: none;
 }
-#mg-pips .mg-pip {
-  width: calc(16 * var(--u));
-  height: calc(16 * var(--u));
-  box-shadow: inset 0 0 0 calc(1.5 * var(--u)) var(--paper-dim);
-  background: transparent;
-  position: relative;
-}
-#mg-pips .mg-pip .mg-fam {
-  position: absolute;
-  top: calc(18 * var(--u));
-  left: 0;
-  font-family: var(--finefont);
-  font-size: calc(6.5 * var(--u));
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+#cf-inv .cf-res, #cf-inv .cf-tool {
+  font-family: var(--pixfont);
+  font-size: calc(9 * var(--u));
+  line-height: 1;
+  padding: calc(2 * var(--u)) calc(4 * var(--u));
+  background: rgba(12, 9, 6, 0.62);
   color: var(--paper-dim);
   white-space: nowrap;
 }
-#mg-pips .mg-pip.current { box-shadow: inset 0 0 0 calc(2.5 * var(--u)) var(--amber); }
-#mg-pips .mg-pip.solved { background: var(--green, #56ba6a); }
-#mg-pips .mg-pip.failed { background: var(--red); }
-#mg-pips .mg-pip.failed::after {
-  content: '';
-  position: absolute;
-  inset: calc(2 * var(--u));
-  background: linear-gradient(45deg, transparent 44%, var(--paper) 44%,
-              var(--paper) 56%, transparent 56%);
-}
-#mg-pips .mg-pip.unreached { opacity: 0.35; }
+#cf-inv .cf-res.have { color: var(--paper); }
+#cf-inv .cf-tool { opacity: 0.3; }
+#cf-inv .cf-tool.own { opacity: 1; color: var(--amber); }
 
-/* --- the agent's own 7x7 window, in the kept #fpv panel ----------------- */
+/* --- the achievement checklist, in the LEFT gutter ---------------------- */
+/* The single most important readout in this game, and why the checklist gets
+   a whole gutter. Two columns x eleven rows, in canonical order, positioned
+   inside the board region's letterbox gutter — never inside var(--band). */
+#cf-checklist {
+  position: absolute;
+  right: calc(8 * var(--u));
+  top: calc(var(--topband, 0px) + 8 * var(--u));
+  z-index: 5;
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  grid-auto-flow: column;
+  grid-template-rows: repeat(11, auto);
+  gap: calc(2 * var(--u)) calc(5 * var(--u));
+  background: rgba(12, 10, 8, 0.6);
+  padding: calc(4 * var(--u));
+}
+#cf-checklist .cf-chip {
+  display: flex;
+  align-items: center;
+  gap: calc(3 * var(--u));
+  opacity: 0.25;
+  font-family: var(--finefont);
+  font-size: calc(7.5 * var(--u));
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--paper);
+  white-space: nowrap;
+}
+#cf-checklist .cf-chip i {
+  width: calc(9 * var(--u));
+  height: calc(9 * var(--u));
+  flex: none;
+  background: transparent;
+  box-shadow: inset 0 0 0 calc(1 * var(--u)) rgba(242, 232, 216, 0.45);
+}
+#cf-checklist .cf-chip.on { opacity: 1; }
+#cf-checklist .cf-chip.on i {
+  background: var(--amber);
+  box-shadow: inset 0 0 0 calc(1 * var(--u)) rgba(255, 244, 214, 0.9);
+}
+#cf-checklist .cf-chip.flash i { animation: cfflash 420ms steps(3) 2; }
+@keyframes cfflash { 0%, 100% { background: var(--amber); } 50% { background: #fff6dc; } }
+
+/* --- the cog's own 9x9 window, in the kept #fpv panel ------------------- */
 #fpv-cap { letter-spacing: 0.12em; }
 
 /* --- scrubber beats: one rule per kind this sim emits, and no others ---- */
@@ -4227,41 +4417,35 @@ button.beat-marker {
   transform: translateX(-1px);
   z-index: 2;
 }
-.beat-marker.taskstart {
-  background: var(--paper);
-  width: calc(2 * var(--u));
-  height: calc(12 * var(--u));
-  opacity: 0.8;
-}
-.beat-marker.solved {
-  background: var(--green, #56ba6a);
+.beat-marker.achievement {
+  background: var(--amber);
   width: calc(3 * var(--u));
   height: calc(12 * var(--u));
 }
-.beat-marker.failed {
+.beat-marker.nightfall { background: #2b3f88; height: calc(8 * var(--u)); }
+.beat-marker.daybreak { background: #cfd6e6; height: calc(8 * var(--u)); }
+.beat-marker.kill { background: #56ba6a; height: calc(9 * var(--u)); }
+.beat-marker.death {
   background: var(--red);
   width: calc(3 * var(--u));
-  height: calc(12 * var(--u));
+  height: calc(14 * var(--u));
 }
-.beat-marker.unlock { background: var(--amber); height: calc(8 * var(--u)); }
-.beat-marker.produce { background: #a060d0; height: calc(8 * var(--u)); }
-.beat-marker.fallback { background: var(--paper-dim); height: calc(6 * var(--u)); opacity: 0.8; }
+.beat-marker.fallback {
+  background: var(--paper-dim);
+  height: calc(6 * var(--u));
+  opacity: 0.8;
+}
 .beat-marker.end {
-  background: var(--amber);
+  background: var(--paper);
   width: calc(3 * var(--u));
   height: calc(14 * var(--u));
 }
 
-/* --- the endcard's five-column task table ------------------------------ */
-/* The starter's .ec-row is sized for five SHORT columns (K / D / Clstr / Cap);
-   a mission sentence is a whole clause, so the row becomes a grid whose
-   mission column takes the slack and ellipsises, and every other column keeps
-   its natural width. */
+/* --- the endcard's five-column achievement table ------------------------ */
 #endcard .ec-teams .ec-thead,
 #endcard .ec-teams .ec-row {
   display: grid;
-  grid-template-columns:
-    minmax(6em, 9em) minmax(0, 1fr) 5.5em 4em 5em;
+  grid-template-columns: 2.5em minmax(0, 1fr) 5.5em 4.5em 3.5em;
   gap: calc(8 * var(--u));
   align-items: baseline;
   text-align: left;
@@ -4278,87 +4462,136 @@ button.beat-marker {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+#endcard .ec-teams .ec-row.locked { opacity: 0.42; }
 #stage.tiny #endcard .ec-teams .ec-thead,
 #stage.tiny #endcard .ec-teams .ec-row {
-  grid-template-columns: 5.5em minmax(0, 1fr) 4em 3em 3.5em;
+  grid-template-columns: 2em minmax(0, 1fr) 4em 3.5em 2.5em;
   gap: calc(4 * var(--u));
 }
 
 /* --- feed rows --------------------------------------------------------- */
-.feed-row .mg-say { color: var(--paper); font-style: italic; }
-.feed-row .mg-note { color: var(--amber); letter-spacing: 0.06em; }
+.feed-row .cf-say { color: var(--paper); font-style: italic; }
+.feed-row .cf-note { color: var(--amber); letter-spacing: 0.06em; }
 /* The inherited row is `white-space: nowrap` and sized to content, which is
-   right for a paintball kill line and wrong for a 140-rune remark or a whole
-   mission sentence: at 360 px such a row grows past the frame and the tail of
-   the sentence is drawn off-screen. Model-authored rows therefore WRAP inside
-   the feed's own reserved width instead of running away — the band is widened,
-   the text is never shortened (checklist item 15). */
-.feed-row.mg-remark {
+   right for a paintball kill line and wrong for a 160-rune remark: at 360 px
+   such a row grows past the frame and the tail is drawn off-screen. Model-
+   authored rows therefore WRAP inside the feed's own reserved width; every
+   other row is single-line with an ellipsis and keeps its full text in
+   `title`. */
+.feed-row.cf-remark {
   white-space: normal;
   overflow-wrap: anywhere;
   max-width: 100%;
   line-height: 1.3;
   align-items: flex-start;
 }
+.feed-row.cf-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
 
 /* --- legible at 360px -------------------------------------------------- */
 /* relayout() toggles #stage.tiny at boardW <= 620 and clamps --hudscale to
-   [0.5, 1.6]; both are the starter's, kept verbatim. These five rules are
-   what this game adds on top, and tests/test_crafter_viewer.nim asserts each
-   of them exists. */
-#stage.tiny .plate .mg-alias {
-  /* The note's rule 2 keeps `alias + name + solved + carrying chip` at .tiny,
-     so the alias STAYS: it shrinks and ellipsises instead of disappearing. */
+   [0.5, 1.6]; both are the starter's, kept verbatim. These six rules are what
+   this game adds on top, and tests/test_crafter_viewer.nim asserts each. */
+/* 1. the plate keeps alias + name + achievement count + health bar */
+#stage.tiny .plate .cf-alias {
   font-size: calc(7 * var(--u));
   letter-spacing: 0.08em;
   max-width: calc(120 * var(--u));
   overflow: hidden;
   text-overflow: ellipsis;
 }
-#stage.tiny .plate .mg-carry {
-  min-width: calc(22 * var(--u));
-  font-size: calc(10 * var(--u));
+#stage.tiny #cf-vitals .cf-vrow.food,
+#stage.tiny #cf-vitals .cf-vrow.drink,
+#stage.tiny #cf-vitals .cf-vrow.energy { display: none; }
+#stage.tiny #cf-vitals .cf-vname { display: none; }
+#stage.tiny #cf-vitals .cf-pip { width: calc(3 * var(--u)); height: calc(6 * var(--u)); }
+#stage.tiny #cf-strip { display: flex; }
+/* 2. the inventory strip drops its resource numerals to 8 px icon-plus-count */
+#stage.tiny #cf-inv {
+  top: calc(var(--topband, 0px) + 30 * var(--u));
+  max-width: calc(110 * var(--u));
+  gap: calc(2 * var(--u));
 }
-#stage.tiny #mg-ribbon {
-  width: min(52%, calc(210 * var(--u)));
-  padding: calc(3 * var(--u)) calc(5 * var(--u));
+#stage.tiny #cf-inv .cf-res, #stage.tiny #cf-inv .cf-tool {
+  font-size: calc(8 * var(--u));
+  padding: calc(1 * var(--u)) calc(2 * var(--u));
 }
-#stage.tiny #mg-ribbon .mg-mission {
-  font-size: calc(9 * var(--u));
-  -webkit-line-clamp: 3;
-}
-#stage.tiny #mg-pips {
-  top: calc(var(--topband, 0px) + 56 * var(--u));
-  gap: calc(3 * var(--u));
-}
-#stage.tiny #mg-pips .mg-pip { width: calc(12 * var(--u)); height: calc(12 * var(--u)); }
-#stage.tiny #mg-pips .mg-pip .mg-fam { display: none; }
-#stage.tiny #fpv { width: 84px !important; height: 84px !important; }
+/* 3. the checklist renders as 2 x 11 nine-px icon chips with no captions */
+#stage.tiny #cf-checklist { gap: calc(1 * var(--u)) calc(2 * var(--u)); padding: calc(2 * var(--u)); }
+#stage.tiny #cf-checklist .cf-chip span { display: none; }
+#stage.tiny #cf-checklist .cf-chip i { width: calc(9 * var(--u)); height: calc(9 * var(--u)); }
+#stage.tiny #cf-checklist .cf-chip.on i { box-shadow: inset 0 0 0 1px var(--amber); }
+/* 4. the zoom bar is hidden; #minimap pins to 56 px square at the top of the
+      right gutter and the 9x9 inset to 56 px square beneath it
+      (56 + 8 + 56 = 120 px, exactly the gutter height), and #fpv-grip is
+      disabled so the inset can never be dragged over the board */
+#stage.tiny #zoombar { display: none; }
+#stage.tiny #minimap { width: 56px !important; height: 56px !important; }
+#stage.tiny #viewpanel { gap: 8px; }
+#stage.tiny #fpv { width: 56px !important; height: 56px !important; }
 #stage.tiny #fpv-grip { display: none; }
+/* 5. the fog wash is a higher-contrast two-step and the night wash caps at
+      55 % opacity: an 8 px cell cannot carry three wash levels and still show
+      a zombie */
+#stage.tiny #board { --cf-fogsteps: 2; --cf-nightcap: 0.55; }
+/* 6. #killfeed shows three rows instead of six */
+#stage.tiny #killfeed .feed-row:nth-child(n+4) { display: none; }
 </style>
 <script>
 (function () {
   'use strict';
-  // Every name here carries an mg- prefix ON PURPOSE. The page's chrome alias
+  // Every name here carries a cf- prefix ON PURPOSE. The page's chrome alias
   // block declares the shared beat builder with a hoisted `var markBeat`, so a
   // game-block function of that name is silently swallowed by it and the
   // scrubber ends up with unlabelled div markers that never seek
   // (cogame-tandem, 2026-08-23). tests/test_crafter_viewer.nim asserts the
   // whole alias list is untouched below this banner.
   var CTX = null;
-  var mgPlaced = {};          // "tick|kind" -> true (dedup)
-  var mgSeenDirective = {};
-  var mgLastTask = -1;
+  var cfPlaced = {};          // "tick|kind" -> true (dedup)
+  var cfLit = {};             // achievement index -> true (flash once)
+  var cfFollow = true;        // the follow-cam, armed at load
+  var cfCameraCells = 15;
+  var cfZoomApplied = false;
 
-  var MG_GLYPH_COLOUR = {
-    '#': '#6b6152', '.': '#3a352d', '~': '#e0662a', 'G': '#56ba6a',
-    'k': '#e8be44', 'o': '#4a80e0', 'b': '#a06030', 'D': '#c9a24a',
-    'd': '#8a7330', 'L': '#e8be44', 'A': '#d64a3e', '?': '#0c0b0a'
+  var CF_GLYPH_COLOUR = {
+    '.': '#3f6b34', ',': '#c0a463', '~': '#2a5fd0', '#': '#7b7770',
+    '=': '#4a453d', 'T': '#2c5a2e', 'c': '#1a1816', 'i': '#b0743e',
+    'D': '#78dce2', '!': '#e0662a', 'B': '#3a3733', 't': '#a8763c',
+    'f': '#c8562a', 'p': '#5f9c4e', 'Y': '#d4543e', 'U': '#d8c8a8',
+    'Z': '#6ab060', 'K': '#e6e2d4', '^': '#efe4c6', '@': '#d64a3e',
+    '?': '#08080a'
   };
 
-  function mgEl(id) { return document.getElementById(id); }
+  var CF_NAME = {
+    collect_wood: 'CHOP WOOD', place_table: 'PLACE TABLE',
+    eat_cow: 'EAT A COW', collect_sapling: 'GET A SAPLING',
+    collect_drink: 'DRINK', make_wood_pickaxe: 'WOOD PICKAXE',
+    make_wood_sword: 'WOOD SWORD', place_plant: 'PLANT A SAPLING',
+    defeat_zombie: 'BEAT A ZOMBIE', collect_stone: 'MINE STONE',
+    place_stone: 'PLACE STONE', eat_plant: 'EAT A PLANT',
+    defeat_skeleton: 'BEAT A SKELETON', make_stone_pickaxe: 'STONE PICKAXE',
+    make_stone_sword: 'STONE SWORD', wake_up: 'WAKE UP RESTED',
+    place_furnace: 'PLACE FURNACE', collect_coal: 'MINE COAL',
+    collect_iron: 'MINE IRON', make_iron_pickaxe: 'IRON PICKAXE',
+    make_iron_sword: 'IRON SWORD', collect_diamond: 'CUT A DIAMOND'
+  };
 
-  function mgScrubGeometry(s) {
+  var CF_DEATH = {
+    zombie: 'KILLED BY A ZOMBIE', skeleton: 'KILLED BY A SKELETON',
+    arrow: 'SHOT BY AN ARROW', lava: 'WALKED INTO LAVA',
+    starvation: 'STARVED', thirst: 'DIED OF THIRST',
+    exhaustion: 'COLLAPSED FROM EXHAUSTION', none: ''
+  };
+
+  function cfEl(id) { return document.getElementById(id); }
+  function cfUpper(text) { return String(text || '').toUpperCase(); }
+  function cfLabel(id) { return CF_NAME[id] || cfUpper(String(id).replace(/_/g, ' ')); }
+
+  function cfScrubGeometry(s) {
     var st = Math.max(0, s.st || 0);
     var mx = Math.max(st + 1, s.mx || 1);
     return { st: st, span: mx - st };
@@ -4366,13 +4599,13 @@ button.beat-marker {
 
   // A LABELLED, CLICKABLE BUTTON on the scrubber that seeks on click. Never
   // `markBeat` — see the prefix note above.
-  function mgBeat(s, tick, kind, label) {
+  function cfBeat(s, tick, kind, label) {
     var key = tick + '|' + kind;
-    if (mgPlaced[key]) return;
-    mgPlaced[key] = true;
-    var scrub = mgEl('scrub');
+    if (cfPlaced[key]) return;
+    cfPlaced[key] = true;
+    var scrub = cfEl('scrub');
     if (!scrub) return;
-    var g = mgScrubGeometry(s);
+    var g = cfScrubGeometry(s);
     var el = document.createElement('button');
     el.type = 'button';
     el.className = 'beat-marker ' + kind;
@@ -4388,80 +4621,165 @@ button.beat-marker {
     scrub.appendChild(el);
   }
 
-  function mgFeed(html, cls) {
+  function cfFeed(html, cls) {
     var row = document.createElement('div');
-    row.className = 'feed-row' + (cls ? ' ' + cls : '');
+    row.className = 'feed-row ' + (cls || 'cf-line');
     row.innerHTML = html;
     CTX.pushFeed(row);
   }
 
-  function mgUpper(text) { return String(text || '').toUpperCase(); }
-
-  // ---- the mission ribbon + the five task pips ---------------------------
-  function mgEnsureRibbon() {
-    var host = mgEl('stage');
-    if (!host) return null;
-    var ribbon = mgEl('mg-ribbon');
-    if (!ribbon) {
-      ribbon = document.createElement('div');
-      ribbon.id = 'mg-ribbon';
-      ribbon.innerHTML =
-        '<div class="mg-taskline" id="mg-taskline"></div>' +
-        '<div class="mg-mission" id="mg-mission"></div>';
-      host.appendChild(ribbon);
+  // ---- the follow-cam over the kept #viewpanel ---------------------------
+  // fitScale and zoom are related by zoom = worldSize / cellsAcross
+  // independently of the container width, so showing `cameraCells` cells is
+  // exactly core.setZoom(64 / cameraCells). broadcast_core.js resets zoom to
+  // minZoom whenever the board's native size changes — which happens once, at
+  // the first frame — so this re-applies whenever it observes zoom === 1 with
+  // follow still armed.
+  function cfCamera(s, cf) {
+    var core = window.CF_CORE;
+    if (!core || !cf) return;
+    var world = cf.world || 64;
+    var cell = cf.cell || 24;
+    if (!cfFollow) return;
+    var t = core.getTransform ? core.getTransform() : null;
+    if (!cfZoomApplied || (t && t.zoom === 1)) {
+      core.setZoom(world / cfCameraCells);
+      cfZoomApplied = true;
     }
-    return ribbon;
+    core.panTo(cf.x * cell + cell / 2, cf.y * cell + cell / 2);
+    var read = cfEl('zoom-read');
+    if (read) {
+      var across = cfCameraCells;
+      if (t && t.zoom > 0) across = Math.round(world / t.zoom);
+      across = Math.max(1, Math.min(world, across));
+      var text = across + ' CELLS';
+      if (read.textContent !== text) read.textContent = text;
+    }
   }
 
-  function mgEnsurePips(count) {
-    var host = mgEl('stage');
-    if (!host) return null;
-    var pips = mgEl('mg-pips');
-    if (!pips) {
-      pips = document.createElement('div');
-      pips.id = 'mg-pips';
-      host.appendChild(pips);
+  // ---- the vitals bars and the inventory strip ---------------------------
+  function cfEnsure(id, host, html) {
+    var el = cfEl(id);
+    if (!el) {
+      var parent = cfEl(host);
+      if (!parent) return null;
+      el = document.createElement('div');
+      el.id = id;
+      if (html) el.innerHTML = html;
+      parent.appendChild(el);
     }
-    while (pips.childNodes.length < count) {
-      var pip = document.createElement('div');
-      pip.className = 'mg-pip';
-      pip.innerHTML = '<span class="mg-fam"></span>';
-      pips.appendChild(pip);
-    }
-    return pips;
+    return el;
   }
 
-  function mgRenderRibbon(mg) {
-    var ribbon = mgEnsureRibbon();
-    if (!ribbon || !mg) return;
-    var line = mgEl('mg-taskline');
-    var mission = mgEl('mg-mission');
-    var text = 'TASK ' + (mg.index + 1) + '/' + mg.count + ' · ' +
-      mgUpper(mg.family);
-    if (line && line.textContent !== text) line.textContent = text;
-    if (mission && mission.textContent !== (mg.mission || '')) {
-      mission.textContent = mg.mission || '';
-      // The full sentence stays reachable at .tiny, where the ribbon clamps.
-      ribbon.title = mg.mission || '';
+  var CF_VITALS = ['health', 'food', 'drink', 'energy'];
+
+  function cfRenderVitals(cf) {
+    var host = cfEnsure('cf-vitals', 'stage', '');
+    if (!host) return;
+    if (!host.childNodes.length) {
+      CF_VITALS.forEach(function (name) {
+        var row = document.createElement('div');
+        row.className = 'cf-vrow ' + name;
+        var label = document.createElement('span');
+        label.className = 'cf-vname';
+        label.textContent = name;
+        var pips = document.createElement('span');
+        pips.className = 'cf-pips';
+        for (var i = 0; i < (cf.vitalMax || 9); i++) {
+          var pip = document.createElement('i');
+          pip.className = 'cf-pip';
+          pips.appendChild(pip);
+        }
+        row.appendChild(label);
+        row.appendChild(pips);
+        host.appendChild(row);
+      });
     }
-    var pips = mgEnsurePips((mg.pips || []).length);
-    if (!pips) return;
-    (mg.pips || []).forEach(function (p, i) {
-      var el = pips.childNodes[i];
-      if (!el) return;
-      var cls = 'mg-pip ' + p.state;
-      if (el.className !== cls) el.className = cls;
-      el.title = 'Task ' + (i + 1) + ' — ' + mgUpper(p.family) +
-        (p.mission ? ': ' + p.mission : '') + ' — ' + p.state;
-      var fam = el.firstChild;
-      if (fam && fam.textContent !== p.family) fam.textContent = p.family;
+    CF_VITALS.forEach(function (name, r) {
+      var row = host.childNodes[r];
+      if (!row) return;
+      var value = cf[name] || 0;
+      var cls = 'cf-vrow ' + name + (value === 0 ? ' zero' : '');
+      if (row.className !== cls) row.className = cls;
+      var pips = row.childNodes[1];
+      for (var i = 0; i < pips.childNodes.length; i++) {
+        var want = 'cf-pip' + (i < value ? ' on' : '');
+        if (pips.childNodes[i].className !== want) {
+          pips.childNodes[i].className = want;
+        }
+      }
     });
   }
 
-  // ---- the agent's own 7x7 window, in the kept #fpv panel ----------------
-  function mgRenderAgentView(s, mg) {
-    var canvas = mgEl('fpv-canvas');
-    if (!canvas || !mg || !mg.view || !mg.view.length) return;
+  var CF_RES = ['wood', 'stone', 'coal', 'iron', 'diamond', 'sapling'];
+  var CF_TOOLS = ['wood_pickaxe', 'stone_pickaxe', 'iron_pickaxe',
+                  'wood_sword', 'stone_sword', 'iron_sword'];
+  var CF_TOOL_SHORT = {
+    wood_pickaxe: 'W-PICK', stone_pickaxe: 'S-PICK', iron_pickaxe: 'I-PICK',
+    wood_sword: 'W-SWORD', stone_sword: 'S-SWORD', iron_sword: 'I-SWORD'
+  };
+
+  function cfRenderInventory(cf) {
+    var host = cfEnsure('cf-inv', 'stage', '');
+    if (!host || !cf.inv || !cf.tools) return;
+    if (!host.childNodes.length) {
+      CF_RES.forEach(function (name) {
+        var chip = document.createElement('span');
+        chip.className = 'cf-res';
+        chip.title = name;
+        host.appendChild(chip);
+      });
+      CF_TOOLS.forEach(function (name) {
+        var chip = document.createElement('span');
+        chip.className = 'cf-tool';
+        chip.title = name.replace(/_/g, ' ');
+        chip.textContent = CF_TOOL_SHORT[name];
+        host.appendChild(chip);
+      });
+    }
+    CF_RES.forEach(function (name, i) {
+      var chip = host.childNodes[i];
+      var count = cf.inv[name] || 0;
+      var text = cfUpper(name.slice(0, 4)) + ' ' + count;
+      if (chip.textContent !== text) chip.textContent = text;
+      var cls = 'cf-res' + (count > 0 ? ' have' : '');
+      if (chip.className !== cls) chip.className = cls;
+    });
+    CF_TOOLS.forEach(function (name, i) {
+      var chip = host.childNodes[CF_RES.length + i];
+      var cls = 'cf-tool' + (cf.tools[name] ? ' own' : '');
+      if (chip.className !== cls) chip.className = cls;
+    });
+  }
+
+  // ---- the achievement checklist ----------------------------------------
+  function cfRenderChecklist(cf) {
+    var host = cfEnsure('cf-checklist', 'stage', '');
+    if (!host || !cf.chips) return;
+    if (!host.childNodes.length) {
+      cf.chips.forEach(function (chip) {
+        var el = document.createElement('div');
+        el.className = 'cf-chip';
+        el.title = cfLabel(chip.id);
+        el.innerHTML = '<i></i><span></span>';
+        el.childNodes[1].textContent = cfLabel(chip.id);
+        host.appendChild(el);
+      });
+    }
+    cf.chips.forEach(function (chip, i) {
+      var el = host.childNodes[i];
+      if (!el) return;
+      var flash = chip.on && !cfLit[i];
+      if (chip.on) cfLit[i] = true;
+      var cls = 'cf-chip' + (chip.on ? ' on' : '') + (flash ? ' flash' : '');
+      if (el.className !== cls) el.className = cls;
+    });
+  }
+
+  // ---- the cog's own 9x9 window, in the kept #fpv panel -------------------
+  function cfRenderAgentView(s, cf) {
+    var canvas = cfEl('fpv-canvas');
+    if (!canvas || !cf || !cf.view || !cf.view.length) return;
     var box = canvas.parentNode;
     var size = Math.max(56, Math.min(box ? box.clientWidth : 120,
                                      box ? box.clientHeight : 120));
@@ -4474,18 +4792,18 @@ button.beat-marker {
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, size, size);
-    var n = mg.view.length;
+    var n = cf.view.length;
     var cell = Math.floor(size / n);
     var pad = Math.floor((size - cell * n) / 2);
     for (var j = 0; j < n; j++) {
-      var row = mg.view[j];
+      var row = cf.view[j];
       for (var i = 0; i < row.length; i++) {
         var ch = row.charAt(i);
         // Every glyph is drawn as a CHIP, never as text, so nothing this
         // panel draws can land outside the canvas at any --hudscale.
-        ctx.fillStyle = MG_GLYPH_COLOUR[ch] || '#3a352d';
+        ctx.fillStyle = CF_GLYPH_COLOUR[ch] || '#3f6b34';
         ctx.fillRect(pad + i * cell, pad + j * cell, cell - 1, cell - 1);
-        if (ch === 'A') {
+        if (ch === '@') {
           ctx.fillStyle = '#f2e8d8';
           ctx.fillRect(pad + i * cell + Math.floor(cell / 3),
                        pad + j * cell + 2,
@@ -4494,112 +4812,113 @@ button.beat-marker {
         }
       }
     }
-    var nameEl = mgEl('fpv-name');
+    var nameEl = cfEl('fpv-name');
     if (nameEl) {
-      var text = 'ALPHA · FACING ' + mgUpper(mg.dir);
+      var text = 'ALPHA · FACING ' + cfUpper(cf.facing);
       if (nameEl.textContent !== text) nameEl.textContent = text;
     }
     // SHOW the panel. The inherited renderFpv() reveals #fpv only while a seat
     // is in the paintball POV lens (`s.pov >= 0 && s.fp`), and this fork sends
     // neither key, so it clears `on` on every frame and the window this game
-    // exists to show stayed display:none. Here the 7x7 window is a REQUIRED
-    // spectator readout (design note §Readouts item 3), not an opt-in lens, so
-    // it is shown whenever there is a view to draw. This runs after the
-    // inherited render (the page's frame path calls CrafterChrome.frame last),
-    // and a frame with no `mg.view` — the lobby — returns above and leaves the
-    // inherited toggle's `off` standing.
-    var panel = mgEl('fpv');
+    // exists to show stayed display:none. Here the 9x9 window is a REQUIRED
+    // spectator readout, not an opt-in lens.
+    var panel = cfEl('fpv');
     if (panel) panel.classList.add('on');
   }
 
   // ---- the scorebug plate ------------------------------------------------
-  function mgRenderPlate(s, mg) {
+  function cfRenderPlate(s, cf) {
     var plate = document.querySelector('.plate[data-team="red"]');
-    if (!plate || !mg) return;
-    var num = mgEl('lives-red');
+    if (!plate || !cf) return;
+    var num = cfEl('lives-red');
     if (num) {
-      var text = mg.solved + '/' + mg.count;
+      var text = cf.count + '/' + cf.of;
       if (num.textContent !== text) num.textContent = text;
     }
-    var chip = mgEl('hill-red');
+    var chip = cfEl('hill-red');
     if (chip) {
-      chip.className = 'hillchip mg-carry' + (mg.carrying ? ' held' : '');
-      var carry = mg.carrying ? mgUpper(mg.carrying) : '—';
+      chip.className = 'hillchip cf-alias';
+      var carry = 'DAY ' + cf.day + (cf.night ? ' · NIGHT' : '');
       if (chip.textContent !== carry) chip.textContent = carry;
-      chip.title = mg.carrying ? 'Carrying the ' + mg.carrying
-                               : 'Carrying nothing';
+      chip.title = cf.night ? 'Night — zombies are out' : 'Daylight';
     }
-    var tags = mgEl('tags-red');
+    var tags = cfEl('tags-red');
     if (tags) {
-      tags.className = 'mg-alias';
-      var sub = 'ALPHA · score ' + mg.score +
-        (mg.fallbacks > 0 ? ' · ↯' + mg.fallbacks : '');
+      tags.className = 'cf-alias';
+      var sub = 'ALPHA · score ' + cf.score +
+        (cf.fallbacks > 0 ? ' · ↯' + cf.fallbacks : '');
       if (tags.textContent !== sub) tags.textContent = sub;
     }
   }
 
-  function mgRenderClock(s, mg) {
-    if (!mg) return;
-    var big = mgEl('clock-time');
-    var cap = mgEl('clock-caption');
+  function cfRenderClock(s, cf) {
+    if (!cf) return;
+    var big = cfEl('clock-time');
+    var cap = cfEl('clock-caption');
     if (s.ph === 'lobby') return;   // the shared chrome owns the lobby text
     if (big) {
-      var text = 'SOLVED ' + mg.solved + '/' + mg.count;
+      var text = 'DAY ' + cf.day + (cf.night ? ' · NIGHT' : ' · DAY');
       if (big.textContent !== text) big.textContent = text;
     }
+    var numeral = cfEl('clock');
+    if (numeral) numeral.setAttribute('data-cf', cf.count + ' / ' + cf.of);
     if (cap) {
-      var line = 'task ' + (mg.index + 1) + '/' + mg.count + ' · turn ' +
-        Math.min(mg.turn, mg.cap) + '/' + mg.cap + ' · tick ' + s.t +
-        ' · seen ' + mg.seen + '/' + mg.cells + ' · score ' + mg.score;
+      var line = 'tick ' + cf.tick + '/' + cf.ticks + ' · hp ' + cf.health +
+        ' · score ' + cf.score;
       if (cap.textContent !== line) cap.textContent = line;
     }
   }
 
-  function mgRenderEndcard(s, mg) {
-    if (s.ph !== 'gameover' || !mg) return;
-    var head = mgEl('ec-headline');
+  function cfRenderEndcard(s, cf) {
+    if (s.ph !== 'gameover' || !cf) return;
+    var head = cfEl('ec-headline');
     if (head) {
-      head.textContent = mg.solved + ' OF ' + mg.count + ' SOLVED — PAR ' +
-        (s.over && s.over.par !== undefined ? s.over.par : '?') +
-        (s.over && s.over.winner === 'red' ? ' MET' : ' MISSED');
+      var how = CF_DEATH[cf.deathCause] || 'RAN OUT OF TURNS';
+      head.textContent = cf.count + ' OF ' + cf.of + ' UNLOCKED — ' + how +
+        (cf.deathCause && cf.deathCause !== 'none'
+          ? ' ON DAY ' + cf.day : '');
     }
-    var how = mgEl('ec-how');
-    if (how) {
-      how.textContent = mg.seen + ' of ' + (mg.cells * mg.count) +
-        ' cells seen across the five boards, ' + mg.doors +
-        ' doors opened, ' + mg.deaths + ' death' +
-        (mg.deaths === 1 ? '' : 's') + ', ' + mg.crashes + ' crash' +
-        (mg.crashes === 1 ? '' : 'es') + ', ' + mg.fallbacks +
-        ' fallback turn' + (mg.fallbacks === 1 ? '' : 's') + ' · SCORE ' +
-        mg.score;
+    var howEl = cfEl('ec-how');
+    if (howEl) {
+      howEl.textContent = 'survived ' + cf.tick + ' ticks across ' + cf.day +
+        ' days, ' + cf.seen + ' of ' + cf.cells + ' cells seen, ' + cf.mined +
+        ' blocks mined, ' + cf.placed + ' placed, ' + cf.crafted +
+        ' items crafted, ' + cf.cows + ' cows eaten, ' + cf.interrupts +
+        ' turns cut short, ' + cf.fallbacks + ' fallback turn' +
+        (cf.fallbacks === 1 ? '' : 's') + ' · SCORE ' + cf.score;
     }
-    var cond = mgEl('ec-wincond');
+    var cond = cfEl('ec-wincond');
     if (cond && s.over) {
-      cond.textContent = 'Ended ' + s.over.reason + ' (' + s.over.endRule + ')';
+      cond.textContent = 'Ended ' + s.over.reason + ' (' + s.over.endRule +
+        ') · par ' + cf.par;
     }
     // The transport's verdict chip is fed by the shared chrome from the
     // frame's team key, so it reads "RED WINS". There are no teams here:
-    // re-label it for the ONE cog, by its alias.
-    var chip = mgEl('win-chip');
+    // re-label it for the ONE cog.
+    var chip = cfEl('win-chip');
     if (chip) {
-      var verdict = mg.solved + '/' + mg.count + ' — PAR ' +
+      var verdict = cf.count + '/' + cf.of + ' — PAR ' +
         (s.over && s.over.winner === 'red' ? 'MET' : 'MISSED');
       if (chip.textContent !== verdict) chip.textContent = verdict;
     }
-    var teamsEl = mgEl('ec-teams');
-    if (teamsEl) {
-      var rows = '<div class="ec-thead"><span>Task</span><span>Mission</span>' +
-        '<span>Result</span><span>Turns</span><span>Credits</span></div>';
-      (mg.pips || []).forEach(function (p, i) {
-        rows += '<div class="ec-row" title="' + CTX.esc(p.mission || '') +
-          '"><span>' + (i + 1) + ' ' + mgUpper(p.family) +
-          '</span><span>' + CTX.esc(p.mission || '—') +
-          '</span><span>' + p.state + '</span><span>' + p.turns +
-          '</span><span>' + p.credits + '/3</span></div>';
+    var teamsEl = cfEl('ec-teams');
+    if (teamsEl && cf.chips) {
+      var rows = '<div class="ec-thead"><span>#</span><span>Achievement</span>' +
+        '<span>Unlocked</span><span>Tick</span><span>Day</span></div>';
+      cf.chips.forEach(function (chip2, i) {
+        var day = chip2.on && cf.ticks
+          ? Math.floor(chip2.t / Math.max(1, cf.ticks / Math.max(1, cf.day))) + 1
+          : '';
+        rows += '<div class="ec-row' + (chip2.on ? '' : ' locked') +
+          '"><span>' + (i + 1) + '</span><span>' +
+          CTX.esc(cfLabel(chip2.id)) + '</span><span>' +
+          (chip2.on ? 'yes' : '—') + '</span><span>' +
+          (chip2.on ? chip2.t : '—') + '</span><span>' +
+          (chip2.on ? day : '—') + '</span></div>';
       });
-      if (teamsEl.getAttribute('data-mg') !== String(mg.solved) + mg.score) {
+      if (teamsEl.getAttribute('data-cf') !== String(cf.count) + cf.score) {
         teamsEl.innerHTML = rows;
-        teamsEl.setAttribute('data-mg', String(mg.solved) + mg.score);
+        teamsEl.setAttribute('data-cf', String(cf.count) + cf.score);
       }
     }
   }
@@ -4607,125 +4926,123 @@ button.beat-marker {
   // ---- events ------------------------------------------------------------
   // Returns true when this block handled the event, so the inherited switch
   // never doubles it.
-  function mgEvent(e, s, ctx) {
+  function cfEvent(e, s, ctx) {
     // A harness (tools/ci/renderer_fixture.html) may drive these entry points
     // without a context, because the page's own PB_CTX lives inside the
     // chrome IIFE. install() already gave us one; never overwrite it with
     // undefined.
     if (ctx) CTX = ctx;
     switch (e.k) {
-      case 'taskstart':
-        mgBeat(s, e.t, 'taskstart',
-          'Task ' + (e.i + 1) + ' of ' + e.of + ' — ' + mgUpper(e.family) +
-          ': ' + e.mission + ' — click to jump here');
-        mgFeed('<span class="mg-note">TASK ' + (e.i + 1) + ' — ' +
-          mgUpper(e.family) + ':</span> <span class="mg-say">&ldquo;' +
-          CTX.esc(e.mission) + '&rdquo;</span>', 'mg-remark');
-        CTX.banner(mgUpper(e.family) + ' — ' + e.mission, 'amb');
-        return true;
-      case 'solved':
-        mgBeat(s, e.t, 'solved',
-          'Task ' + (e.i + 1) + ' solved in ' + e.turns +
-          ' turns — click to jump here');
-        mgFeed('<span class="mg-note">TASK ' + (e.i + 1) +
-          ' SOLVED IN ' + e.turns + ' TURNS</span>');
-        return true;
-      case 'failed':
-        mgBeat(s, e.t, 'failed',
-          'Task ' + (e.i + 1) + ' lost (' + e.why + ') — click to jump here');
-        mgFeed('<span class="mg-note">TASK ' + (e.i + 1) + ' LOST — ' +
-          mgUpper(e.why) + '</span>');
-        return true;
-      case 'unlock':
-        mgBeat(s, e.t, 'unlock',
-          'Unlocked the ' + e.color + ' door at (' + e.x + ',' + e.y +
-          ') — click to jump here');
-        mgFeed('UNLOCKED THE ' + mgUpper(e.color) + ' DOOR AT (' + e.x + ',' +
-          e.y + ')');
-        return true;
-      case 'produce':
-        mgBeat(s, e.t, 'produce',
-          'Rule found: ' + e.a + ' + ' + e.b + ' → ' + e.out +
+      case 'achievement':
+        cfBeat(s, e.t, 'achievement',
+          '★ Achievement ' + e.n + '/' + e.of + ' — ' + cfLabel(e.id) +
           ' — click to jump here');
-        mgFeed('<span class="mg-note">RULE FOUND:</span> ' +
-          mgUpper(e.a) + ' + ' + mgUpper(e.b) + ' → ' + mgUpper(e.out));
+        cfFeed('<span class="cf-note">★ ACHIEVEMENT ' + e.n + '/' + e.of +
+          ' — ' + CTX.esc(cfLabel(e.id)) + '</span>');
+        CTX.banner('★ ' + cfLabel(e.id) + ' — ' + e.n + '/' + e.of, 'amb');
+        return true;
+      case 'nightfall':
+        cfBeat(s, e.t, 'nightfall',
+          'Night falls on day ' + e.day + ' — click to jump here');
+        cfFeed('NIGHT FALLS ON DAY ' + e.day);
+        return true;
+      case 'daybreak':
+        cfBeat(s, e.t, 'daybreak',
+          'Day ' + e.day + ' breaks — click to jump here');
+        cfFeed('THE SUN COMES UP ON DAY ' + e.day);
+        return true;
+      case 'kill':
+        cfBeat(s, e.t, 'kill',
+          'Killed a ' + e.what + ' — click to jump here');
+        cfFeed('KILLED A ' + cfUpper(e.what));
+        return true;
+      case 'death':
+        cfBeat(s, e.t, 'death',
+          (CF_DEATH[e.by] || 'Died') + ' — click to jump here');
+        cfFeed('<span class="cf-note">ALPHA ' + cfUpper(CF_DEATH[e.by] ||
+          'DIED') + '</span>');
         return true;
       case 'fallback':
-        mgBeat(s, e.t, 'fallback',
+        cfBeat(s, e.t, 'fallback',
           'Missed the call (' + e.cause + ') — click to jump here');
-        mgFeed('MISSED THE CALL — scout plan (' + CTX.esc(e.cause) + ')');
+        cfFeed('MISSED THE CALL — forager plan (' + CTX.esc(e.cause) + ')');
         return true;
       case 'end':
-        mgBeat(s, e.t, 'end',
-          e.solved + ' of ' + e.of + ' solved — click to jump here');
+        cfBeat(s, e.t, 'end',
+          e.unlocked + ' of ' + e.of + ' unlocked — click to jump here');
         return false;    // the endcard is state-driven; let the page see it
       case 'say':
-        mgFeed('<span class="who red">Alpha</span>' +
-          '<span class="glyph">:</span><span class="mg-say">&ldquo;' +
-          CTX.esc(e.text) + '&rdquo;</span>', 'mg-remark');
+        cfFeed('<span class="who red">Alpha</span>' +
+          '<span class="glyph">:</span><span class="cf-say">&ldquo;' +
+          CTX.esc(e.text) + '&rdquo;</span>', 'cf-remark');
         return true;
       case 'plan':
-        mgFeed('PLAN — ' + CTX.esc(e.verbs || '(wait)') +
-          (e.truncated ? ' <span class="mg-note">CUT OFF</span>' : '') +
-          (e.dropped ? ' <span class="mg-note">' + e.dropped +
-            ' DROPPED</span>' : ''), 'mg-remark');
+        cfFeed('PLAN — ' + CTX.esc(e.verbs || '(noop)') +
+          (e.truncated ? ' <span class="cf-note">CUT OFF</span>' : '') +
+          (e.dropped ? ' <span class="cf-note">' + e.dropped +
+            ' DROPPED</span>' : '') +
+          (e.interrupted ? ' <span class="cf-note">TURN CUT SHORT — ' +
+            cfUpper(String(e.interrupted).replace(/_/g, ' ')) + '</span>' : ''),
+          'cf-remark');
         return true;
-      case 'pickup':
-        mgFeed('PICKED UP THE ' + mgUpper(e.color) + ' ' + mgUpper(e.type));
+      case 'collect':
+        cfFeed('COLLECTED ' + cfUpper(e.what) + ' (' + e.count + ')');
         return true;
-      case 'drop':
-        mgFeed('DROPPED THE ' + mgUpper(e.color) + ' ' + mgUpper(e.type) +
+      case 'craft':
+        cfFeed('MADE A ' + cfUpper(String(e.what).replace(/_/g, ' ')));
+        return true;
+      case 'place':
+        cfFeed('PLACED A ' + cfUpper(String(e.what).replace(/_/g, ' ')) +
           ' AT (' + e.x + ',' + e.y + ')');
         return true;
-      case 'open':
-        mgFeed('OPENED THE ' + mgUpper(e.color) + ' DOOR AT (' + e.x + ',' +
-          e.y + ')');
+      case 'eat':
+        cfFeed('ATE A ' + cfUpper(e.what) + ' (FOOD ' + e.food + '/9)');
         return true;
-      case 'close':
-        return true;      // closing a door behind you is not news
-      case 'subgoal':
-        mgFeed('SUBGOAL — ' + mgUpper(String(e.label).replace(/_/g, ' ')) +
-          ' (' + (e.which + 1) + '/3)');
+      case 'drink':
+        cfFeed('DRANK FROM THE LAKE (' + e.drink + '/9)');
         return true;
-      case 'lava':
-        mgFeed('STEPPED INTO LAVA AT (' + e.x + ',' + e.y + ')');
+      case 'hurt':
+        cfFeed('A ' + cfUpper(e.by) + ' HIT ALPHA — ' + e.hp +
+          ' HEALTH LEFT');
         return true;
-      case 'crash':
-        mgFeed('WALKED INTO A GREY BALL AT (' + e.x + ',' + e.y + ')');
+      case 'heal':
+        return true;      // a slow regeneration tick is not news
+      case 'spawn':
+        cfFeed('A ' + cfUpper(e.what) + ' APPEARS AT (' + e.x + ',' + e.y + ')');
+        return true;
+      case 'burn':
+        cfFeed(e.n + ' ZOMBIE' + (e.n === 1 ? '' : 'S') + ' BURN UP AT DAWN');
+        return true;
+      case 'sleep':
+        cfFeed(e.state === 'start' ? 'SEALED IN AND SLEEPING'
+                                   : 'WOKE UP RESTED');
+        return true;
+      case 'starve':
+        cfFeed('NO ' + cfUpper(e.which) + ' LEFT — ' + e.hp + ' HEALTH');
         return true;
       case 'budget':
-        mgFeed('BUDGET GUARD — ' + e.remaining_s + 's left, scripted from here');
+        cfFeed('BUDGET GUARD — ' + e.remaining_s + 's left, scripted from here');
         return true;
       case 'turn':
-        return true;      // the ribbon and the clock are that readout
+        return true;      // the clock is that readout
     }
     return false;
   }
 
-  function mgDirectives(s) {
-    var records = s.directives;
-    if (!records || !records.length) return;
-    for (var i = 0; i < records.length; i++) {
-      var d = records[i];
-      if (d.k !== 'directive') continue;
-      var key = d.turn + ':' + d.slot;
-      if (mgSeenDirective[key]) continue;
-      mgSeenDirective[key] = true;
-    }
-  }
-
-  function mgFrame(s, ctx, jumped) {
+  function cfFrame(s, ctx, jumped) {
     if (ctx) CTX = ctx;
-    if (jumped) { mgPlaced = {}; mgSeenDirective = {}; }
-    var mg = s.mg;
-    if (!mg) return;
-    mgRenderRibbon(mg);
-    mgRenderPlate(s, mg);
-    mgRenderClock(s, mg);
-    mgRenderAgentView(s, mg);
-    mgRenderEndcard(s, mg);
-    mgDirectives(s);
-    if (mg.index !== mgLastTask) mgLastTask = mg.index;
+    if (jumped) { cfPlaced = {}; cfLit = {}; }
+    var cf = s.cf;
+    if (!cf) return;
+    if (cf.camera) cfCameraCells = cf.camera;
+    cfRenderVitals(cf);
+    cfRenderInventory(cf);
+    cfRenderChecklist(cf);
+    cfRenderPlate(s, cf);
+    cfRenderClock(s, cf);
+    cfRenderAgentView(s, cf);
+    cfRenderEndcard(s, cf);
+    cfCamera(s, cf);
     // The up-front beat timeline (shipped ONCE by the load-time pre-scan)
     // places every marker before playback reaches it, so the scrubber draws
     // at FULL WIDTH on the first frame instead of growing in.
@@ -4733,43 +5050,64 @@ button.beat-marker {
       for (var i = 0; i < s.beats.length; i++) {
         var b = s.beats[i];
         switch (b.k) {
-          case 'taskstart':
-            mgBeat(s, b.t, 'taskstart', 'Task ' + (b.i + 1) + ' — ' +
-              mgUpper(b.family) + ' — click to jump here');
+          case 'achievement':
+            cfBeat(s, b.t, 'achievement', '★ Achievement ' + b.n + '/' + b.of +
+              ' — ' + cfLabel(b.id) + ' — click to jump here');
             break;
-          case 'solved':
-            mgBeat(s, b.t, 'solved', 'Task ' + (b.i + 1) + ' solved in ' +
-              b.turns + ' turns — click to jump here');
+          case 'nightfall':
+            cfBeat(s, b.t, 'nightfall', 'Night falls on day ' + b.day +
+              ' — click to jump here');
             break;
-          case 'failed':
-            mgBeat(s, b.t, 'failed', 'Task ' + (b.i + 1) + ' lost (' + b.why +
-              ') — click to jump here');
+          case 'daybreak':
+            cfBeat(s, b.t, 'daybreak', 'Day ' + b.day + ' breaks' +
+              ' — click to jump here');
             break;
-          case 'unlock':
-            mgBeat(s, b.t, 'unlock', 'Unlocked the ' + b.color +
-              ' door — click to jump here');
+          case 'kill':
+            cfBeat(s, b.t, 'kill', 'Killed a ' + b.what +
+              ' — click to jump here');
             break;
-          case 'produce':
-            mgBeat(s, b.t, 'produce', 'Rule found: ' + b.a + ' + ' + b.b +
-              ' → ' + b.out + ' — click to jump here');
+          case 'death':
+            cfBeat(s, b.t, 'death', (CF_DEATH[b.by] || 'Died') +
+              ' — click to jump here');
             break;
           case 'fallback':
-            mgBeat(s, b.t, 'fallback', 'Missed the call (' + b.cause +
+            cfBeat(s, b.t, 'fallback', 'Missed the call (' + b.cause +
               ') — click to jump here');
             break;
           case 'end':
-            mgBeat(s, b.t, 'end', b.solved + ' of ' + b.of +
-              ' solved — click to jump here');
+            cfBeat(s, b.t, 'end', b.unlocked + ' of ' + b.of +
+              ' unlocked — click to jump here');
             break;
         }
       }
     }
   }
 
+  function cfDisarm() { cfFollow = false; }
+
+  // A user pan or a minimap drag disarms the follow-cam; the starter's own
+  // resetView() binding (dblclick / '0') re-arms it and restores
+  // cameraCells = 15. The board's pointer surface is the one the starter
+  // already wired, so this only listens.
+  window.addEventListener('pointerdown', function (ev) {
+    var board = cfEl('board');
+    var mini = cfEl('minimap');
+    if ((board && board.contains(ev.target)) ||
+        (mini && mini.contains(ev.target))) {
+      cfDisarm();
+    }
+  }, true);
+  window.addEventListener('wheel', function () { cfDisarm(); }, true);
+
   window.CrafterChrome = {
     install: function (ctx) { CTX = ctx; },
-    frame: mgFrame,
-    event: mgEvent
+    frame: cfFrame,
+    event: cfEvent,
+    armFollow: function () {
+      cfFollow = true;
+      cfCameraCells = 15;
+      cfZoomApplied = false;
+    }
   };
 })();
 </script>

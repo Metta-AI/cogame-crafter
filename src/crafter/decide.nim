@@ -269,15 +269,6 @@ proc turn*(engine: var DecisionEngine, sim: var SimServer, turnIndex,
     echo "crafter llm: seat ", seat, " falling back to forager (", cause,
       ") on turn ", turnIndex
 
-proc hostileCells*(sim: SimServer): seq[int] =
-  ## The cells of hostiles CURRENTLY in `threats`. The BFS refuses to route
-  ## through them, which is what keeps `goto` from walking into a zombie.
-  for creature in sim.herd.list:
-    if creature.alive and creature.kind in {ckZombie, ckSkeleton} and
-        chebyshev(creature.x, creature.y, sim.cog.x, sim.cog.y) <=
-          ViewSize div 2:
-      result.add(idx(creature.x, creature.y))
-
 proc applyDirective*(sim: var SimServer, directive: Directive,
                      view: JsonNode): string =
   ## Turn steps 5 and 6: expand the plan against the known map as of turn

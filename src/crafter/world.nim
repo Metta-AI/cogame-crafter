@@ -126,9 +126,13 @@ proc countOf(world: World, terrain: Terrain): int =
   for cell in world.cells:
     if cell == terrain: inc result
 
-proc highestStone(world: World, seed: int): int =
-  ## The `stone` cell with the highest mountain field; ties by ascending
-  ## (y, x). -1 when there is no stone left at all.
+proc oreHost(world: World, seed: int): int =
+  ## Where the next missing ore goes: the `stone` cell with the highest
+  ## mountain field, ties by ascending (y, x). A seed whose only stone is the
+  ## single cell step 4 forced would otherwise spend it on coal and end with
+  ## no iron and no diamond, so the fallback is the highest-mountain WALKABLE
+  ## cell at least ten cells from spawn — still deep in the rock country, and
+  ## still deterministic.
   result = -1
   var best = -1
   for y in 0 ..< WorldSize:
@@ -139,6 +143,103 @@ proc highestStone(world: World, seed: int): int =
       if m > best:
         best = m
         result = idx(x, y)
+  if result >= 0:
+    return
+  for y in 0 ..< WorldSize:
+    for x in 0 ..< WorldSize:
+      if world.cells[idx(x, y)] notin {tGrass, tSand, tPath}:
+        continue
+      if chebyshev(x, y, SpawnX, SpawnY) < 10:
+        continue
+      let m = noiseAt(seed, SaltMountain, x, y)
+      if m > best:
+        best = m
+        result = idx(x, y)
+
+proc landRegion*(world: World): array[WorldCells, bool] =
+  ## The cells the cog can stand on, flood-filled from spawn over grass, sand
+  ## and path. Lava is excluded: it is walkable and instantly fatal, so a
+  ## route through it is not a route.
+  var queue = @[idx(SpawnX, SpawnY)]
+  result[idx(SpawnX, SpawnY)] = true
+  var head = 0
+  while head < queue.len:
+    let
+      current = queue[head]
+      cx = current mod WorldSize
+      cy = current div WorldSize
+    inc head
+    for i in 0 ..< 4:
+      let
+        nx = cx + [0, 1, 0, -1][i]
+        ny = cy + [-1, 0, 1, 0][i]
+      if not inBounds(nx, ny) or result[idx(nx, ny)]:
+        continue
+      if world.cells[idx(nx, ny)] notin {tGrass, tSand, tPath}:
+        continue
+      result[idx(nx, ny)] = true
+      queue.add(idx(nx, ny))
+
+proc touches*(world: World, region: array[WorldCells, bool],
+              terrain: Terrain): bool =
+  ## Is some cell of `terrain` 4-adjacent to (or inside) the reachable land?
+  for slot in 0 ..< WorldCells:
+    if world.cells[slot] != terrain:
+      continue
+    let
+      x = slot mod WorldSize
+      y = slot div WorldSize
+    if region[slot]:
+      return true
+    for i in 0 ..< 4:
+      let
+        nx = x + [0, 1, 0, -1][i]
+        ny = y + [-1, 0, 1, 0][i]
+      if inBounds(nx, ny) and region[idx(nx, ny)]:
+        return true
+  false
+
+proc nearestOf*(world: World, region: array[WorldCells, bool],
+                terrain: Terrain): tuple[found: bool; x, y, fromX, fromY: int] =
+  ## The cell of `terrain` closest to the reachable land, and the land cell it
+  ## is closest to. Ties by ascending (y, x) on both sides, so the pick is
+  ## unique for a given grid.
+  var best = -1
+  for slot in 0 ..< WorldCells:
+    if world.cells[slot] != terrain:
+      continue
+    let
+      x = slot mod WorldSize
+      y = slot div WorldSize
+    for land in 0 ..< WorldCells:
+      if not region[land]:
+        continue
+      let d = chebyshev(x, y, land mod WorldSize, land div WorldSize)
+      if best < 0 or d < best:
+        best = d
+        result = (true, x, y, land mod WorldSize, land div WorldSize)
+
+proc carve*(world: var World, fromX, fromY, toX, toY: int) =
+  ## An L-shaped SAND corridor: horizontal first, then vertical. The bedrock
+  ## ring, the target cell itself and the forced 3 x 3 grass block at spawn
+  ## are never touched.
+  template keep(px, py: int): bool =
+    world.cells[idx(px, py)] in {tBedrock, tCoal, tIron, tDiamond} or
+      chebyshev(px, py, SpawnX, SpawnY) <= 1
+  var x = fromX
+  while x != toX:
+    x += (if toX > x: 1 else: -1)
+    if x == toX and fromY == toY:
+      break
+    if not keep(x, fromY):
+      world.cells[idx(x, fromY)] = tSand
+  var y = fromY
+  while y != toY:
+    y += (if toY > y: 1 else: -1)
+    if x == toX and y == toY:
+      break
+    if not keep(x, y):
+      world.cells[idx(x, y)] = tSand
 
 proc generate*(seed, mountainThreshold: int): World =
   ## The world is a PURE FUNCTION of (seed, variant). Nothing the policy does
@@ -169,13 +270,36 @@ proc generate*(seed, mountainThreshold: int): World =
   if not result.withinRadius(tStone, 20):
     let spot = result.firstGrassAtRing(14)
     if spot.ok: result.setAt(spot.x, spot.y, tStone)
-  # 5. Global minima, coal first, then iron, then diamond.
+  # 5. CONNECTIVITY. Steps 2-4 guarantee a tree, water and stone EXIST within
+  #    reach of spawn; they do not guarantee the cog can WALK to one, and a
+  #    seed whose spawn is a three-by-three island in a lake is unwinnable
+  #    however much wood is on the far shore. This step is the design note's
+  #    own promise ("every seed is completable") made true: for each of tree,
+  #    water and stone in that order, if no cell of that kind touches the land
+  #    region the cog can reach, carve an L-shaped SAND corridor to the
+  #    nearest one — horizontal first, then vertical, never through the
+  #    bedrock ring and never over the target itself. Deterministic, integer,
+  #    and a no-op on a seed that was already connected.
+  #    (docs/PORTING-CRAFTER.md records it as a divergence from the note's
+  #    five-step post-pass.) It runs BEFORE the ore minima, and never sands
+  #    over coal, iron or diamond, so a corridor can never take the only iron
+  #    seam in the world with it.
+  for terrain in [tTree, tWater, tStone]:
+    let region = result.landRegion()
+    if result.touches(region, terrain):
+      continue
+    let target = result.nearestOf(region, terrain)
+    if not target.found:
+      continue
+    result.carve(target.fromX, target.fromY, target.x, target.y)
+  # 6. Global minima, coal first, then iron, then diamond.
   for (terrain, minimum) in [(tCoal, 5), (tIron, 3), (tDiamond, 1)]:
     while result.countOf(terrain) < minimum:
-      let slot = result.highestStone(seed)
+      let slot = result.oreHost(seed)
       if slot < 0:
         break
       result.cells[slot] = terrain
+
 
 proc terrainDigest*(world: World): uint64 =
   ## The rolling terrain digest folded once at generation. `sim_state.nim`

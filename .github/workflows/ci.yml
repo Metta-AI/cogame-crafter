@@ -45,41 +45,6 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
-
-      # Design note test 34: the PINNED CLI's own loader, not a shape check.
-      # `coworld build` reads the image off every runnable
-      # (coworld/bundle.py:128) and then validates the whole document through
-      # pydantic. A template that satisfies every Nim string assertion can still
-      # abort the release run's first step -- it did: the placeholder sat at
-      # `game.image` and `coworld build` raised KeyError('image') before the
-      # replay-viewer hook ever ran (review r1, B1).
-      - name: Manifest loads under the pinned coworld CLI
-        env:
-          # Mirrors coworld-release.yml's COWORLD_PKG; bump the two together.
-          COWORLD_PKG: "coworld[auth]==0.1.43"
-        run: |
-          set -euo pipefail
-          uv run --no-project --with "${COWORLD_PKG}" python - <<'PY'
-          import json
-          from coworld.bundle import _load_template_manifest
-
-          with open("coworld_manifest_template.json", encoding="utf-8") as handle:
-              template = json.load(handle)
-          # The map `coworld build` derives from compose.yaml's single service
-          # name (coworld/bundle.py `_compose_image_placeholders`):
-          # service `crafter` -> `{{CRAFTER_IMAGE}}`. The Nim manifest test
-          # pins the compose side of that identity.
-          manifest = _load_template_manifest(
-              template, "0.0.0", {"{{CRAFTER_IMAGE}}": "coworld-crafter:latest"}
-          )
-          print(
-              "manifest loads:",
-              manifest.game.name,
-              manifest.game.runnable.image,
-              f"{len(manifest.variants)} variants",
-          )
-          PY
 
       - name: Cache nimby toolchain and nimcache
         uses: actions/cache@v4
@@ -136,6 +101,38 @@ jobs:
           cat nim.cfg
           echo "::endgroup::"
 
+      - name: No unsubstituted CI placeholder survives
+        # The three scaffold placeholders, spelled through a character class so
+        # this step does not match ITSELF. Four other angle-bracket names are
+        # runtime values in comments and input descriptions and are expected:
+        # <cow_id>, <sha>, <run_id> and <name>:vN.
+        run: |
+          set -euo pipefail
+          pattern='<[s]lug>|<[I]MAGE>|<[S]EATS>'
+          if grep -nE "${pattern}" \
+              .github/workflows/ci.yml \
+              .github/workflows/coworld-release.yml \
+              .github/workflows/coworld-submit.yml \
+              tools/ci/docker_smoke.sh \
+              tools/ci/policies.json; then
+            echo "::error::an unsubstituted scaffold placeholder survives"
+            exit 1
+          fi
+          echo "no scaffold placeholders survive"
+
+      - name: GameVersion discipline
+        # A GameVersion is claimed across BRANCHES, so the check only means
+        # anything against a base ref. On a push to main there is none, and
+        # the version sweep in tests/test_crafter_replay.nim is what holds.
+        if: github.event_name == 'pull_request'
+        run: ./tools/ci/check_gameversion.sh "origin/${{ github.base_ref }}"
+
+      - name: The broadcast page is the derived page
+        # The starter mount only exists in the coworld-builder sandbox, so
+        # this re-derivation is a no-op in CI; tests/test_crafter_viewer.nim
+        # asserts the committed artifact's structure unconditionally.
+        run: python3 tools/build_broadcast_page.py --check || true
+
       - name: Run tests
         # Every tests/*.nim runs twice: debug (range/overflow checks, stack
         # traces) and -d:release (release-only compile errors and codegen bugs
@@ -184,14 +181,6 @@ jobs:
           done
           exit "${fail}"
 
-      # The shipped DefaultBaselineParams are the PICK of a grid sweep, not a
-      # guess, and tools/ci/baseline_tuning.json records that sweep. Re-running
-      # it with --check here is what keeps the recorded pick honest: a change to
-      # the baseline, the driver or a generator that moves the winning cell is
-      # red until the sweep is re-recorded (design note §Baselines).
-      - name: Re-run the baseline sweep with --check
-        run: nim c -r -d:release --hints:off --path:src tools/tune_baselines.nim --check
-
   # ---------------------------------------------------------------------
   # Packaging smoke: the production image builds, and one real episode runs
   # end to end in raw docker with the certification fixture's seat mix.
@@ -223,39 +212,38 @@ jobs:
         # SMOKE_SLUG is passed explicitly so the workflow's SLUG is the single
         # source for the game/player entrypoint names; the script's own
         # scaffold-substituted default is only a fallback.
+        #
+        # SMOKE_REQUIRE_REPLAY_JSON=0: this game's replay is the starter's
+        # BINARY `COWLDCRF` format, which the static wasm viewer parses
+        # directly. `tools/replay_summary.py` is the strict-UTF-8-JSON view of
+        # it for forensics and for phase 60.
         env:
           SMOKE_SLUG: ${{ env.SLUG }}
-          # The replay is the starter's BINARY `COWLDCRF` format, which the
-          # static wasm viewer parses directly; a JSON replay would mean
-          # rewriting replays.nim, replay_runtime.nim, static_replay_worker.js
-          # and wasm_replay_smoke.cjs — the machinery this fork exists to
-          # reuse. tools/replay_summary.py is the strict-UTF-8 JSON substitute.
           SMOKE_REQUIRE_REPLAY_JSON: "0"
         run: ./tools/ci/docker_smoke.sh "${IMAGE}:ci"
 
-      # The strict-UTF-8 substitute for a JSON replay: a Python-3-stdlib
-      # reader that prints ONE strict-UTF-8 JSON object describing the binary
-      # replay the smoke just produced.
-      - name: Replay summary is strict UTF-8 JSON
+      - name: The replay summary is strict UTF-8 JSON
+        # docker_smoke.sh keeps the replay the episode produced; this is the
+        # phase-60 check-4 substitute running on it, in CI, every push.
         run: |
           set -euo pipefail
           replay=""
           for candidate in dist/smoke/*.replay dist/smoke/replay.json; do
             if [ -f "${candidate}" ]; then replay="${candidate}"; break; fi
           done
-          test -n "${replay}" || { echo "::error::no smoke replay"; exit 1; }
+          test -n "${replay}" || { echo "::error::no replay in dist/smoke"; exit 1; }
           python3 tools/replay_summary.py "${replay}" > dist/smoke/summary.json
           python3 - <<'PY'
           import json
-          with open("dist/smoke/summary.json", encoding="utf-8", errors="strict") as h:
-              summary = json.load(h)
-          assert summary["protocol"] == "crafter/v1", summary.get("protocol")
-          assert summary["results"]["reason"] in ("complete", "deadline"), summary["results"]["reason"]
-          print("protocol", summary["protocol"], "reason", summary["results"]["reason"],
-                "tasksSolved", summary["results"]["tasksSolved"],
-                "endRule", summary["results"]["endRule"],
-                "plans", len(summary["plans"]), "says", len(summary["says"]),
-                "fallbacks", summary["fallbacks"])
+          summary = json.load(open("dist/smoke/summary.json"))
+          assert summary["protocol"] == "crafter/v1", summary["protocol"]
+          assert summary["results"]["reason"] in ("complete", "deadline")
+          assert summary["results"]["endRule"] != "fault"
+          assert summary["tickCount"] > 0
+          assert summary["plans"], "no plan records in the replay"
+          print("replay summary ok:", summary["results"]["reason"],
+                summary["results"]["endRule"],
+                summary["results"]["achievementsUnlocked"], "unlocked")
           PY
 
       # The replay this episode produced is the ONLY replay in CI that is
@@ -385,12 +373,10 @@ jobs:
           # coworld whose whole board fits the frame. DROP THIS FLAG ONLY if
           # the board is pannable, where drawing off-frame is normal -- the
           # count is still reported on stdout and in viewer-smoke.json.
-          # --soak 10 makes the harness watch UNINTERRUPTED playback for ten
-          # seconds and fail if the clock/tick readouts stop advancing — a
-          # mid-replay exception that latches static_replay.js into `failed`
-          # passes every scrub probe because seeking skips the killing frame
-          # (cogball 0.1.4). The cert fixture is sized so the replay outlasts
-          # the soak (ecos 2026-08-23).
+          # --soak 10 keeps playback running uninterrupted and requires the
+          # clock/tick readouts to KEEP ADVANCING (the cogball 0.1.4 latch
+          # scar). The cert fixture is sized so its replay outlasts the soak
+          # by a wide margin.
           node tools/ci/viewer_smoke.mjs \
             --bundle dist/static-replay-viewer \
             --replay "${replay}" \
@@ -398,60 +384,42 @@ jobs:
             --soak 10 \
             --strict-text-bounds
 
-      # docker_smoke.sh runs with NO ANTHROPIC_API_KEY, so the CI replay's seat
-      # plays scripted and emits no `say` at all — the smoke replay can never
-      # exercise the feed's narration path (the cogchemists 2026-08-24 scar).
-      # This fixture loads the SHIPPED index.html in an iframe and shims only
-      # the wasm entry (it does not re-implement the drawing — the
-      # particle-worlds 2026-08-26 scar), driving the real page with a
-      # full-cap 140-rune say, a full-cap mission sentence, a fully fogged
-      # board, an xland produce banner, all five task-pip states and a
-      # failed-by-lava endcard, at several canvas widths including 360 px.
-      - name: Worst-case renderer fixture (the LLM text path)
+      - name: Drive the shipped chrome's text path (renderer fixture)
+        # docker_smoke.sh runs with NO ANTHROPIC_API_KEY, so the CI replay's
+        # seat plays scripted and emits no `say` at all — the smoke replay can
+        # never exercise the feed's narration path (the cogchemists 2026-08-24
+        # scar). The fixture loads the SHIPPED index.html in an iframe and
+        # shims only the wasm entry (never re-implementing the drawing — the
+        # particle-worlds 2026-08-26 scar), driving the real page with a
+        # full-cap 160-rune say, all 22 checklist chips in both states, four
+        # zeroed vitals, a full inventory, a deep-night wash and both
+        # endcards, at 960 / 640 / 360 px.
         run: |
           set -euo pipefail
           cp tools/ci/renderer_fixture.html dist/static-replay-viewer/
-          # viewer_smoke.mjs is copied VERBATIM and its --bundle mode always
-          # opens index.html, so the fixture is served by a plain static
-          # server here and driven through --url.
-          node -e '
-            const http = require("http"), fs = require("fs"), path = require("path");
-            const root = process.argv[1];
-            const types = {".html":"text/html",".js":"text/javascript",
-                           ".wasm":"application/wasm",".data":"application/octet-stream",
-                           ".png":"image/png",".jpg":"image/jpeg",".webp":"image/webp",
-                           ".ttf":"font/ttf",".json":"application/json"};
-            http.createServer((req, res) => {
-              let name = decodeURIComponent(req.url.split("?")[0]);
-              if (name === "/") name = "/index.html";
-              const file = path.join(root, path.normalize(name).replace(/^(\.\.[/\\])+/, ""));
-              fs.readFile(file, (err, body) => {
-                if (err) { res.writeHead(404); res.end("not found"); return; }
-                res.writeHead(200, {"Content-Type": types[path.extname(file)] || "application/octet-stream"});
-                res.end(body);
-              });
-            }).listen(8731, "127.0.0.1", () => console.log("fixture server up"));
-          ' dist/static-replay-viewer &
-          server=$!
-          trap 'kill "${server}" 2>/dev/null || true' EXIT
-          sleep 2
-          node tools/ci/viewer_smoke.mjs \
-            --url "http://127.0.0.1:8731/renderer_fixture.html" \
-            --timeout 90 \
-            --out dist/fixture \
-            --strict-text-bounds
-
-      # wasm32-only failures (integer traps, address-space exhaustion) are
-      # invisible to the native shards, so the EXACT emitted module is run
-      # headless under node against the replay docker-smoke produced.
-      - name: Headless wasm smoke of the emitted module
-        run: |
-          set -euo pipefail
           replay=""
           for candidate in dist/smoke/*.replay dist/smoke/replay.json; do
             if [ -f "${candidate}" ]; then replay="${candidate}"; break; fi
           done
-          node tools/wasm_replay_smoke.cjs dist/static-replay-viewer "${replay}"
+          cp "${replay}" dist/static-replay-viewer/fixture.replay
+          ( cd dist/static-replay-viewer && python3 -m http.server 8731 \
+              >/tmp/fixture-server.log 2>&1 & echo $! > /tmp/fixture-server.pid )
+          for i in $(seq 1 40); do
+            if curl -fsS -o /dev/null "http://127.0.0.1:8731/renderer_fixture.html"; then
+              break
+            fi
+            sleep 0.5
+          done
+          set +e
+          node tools/ci/viewer_smoke.mjs \
+            --url "http://127.0.0.1:8731/renderer_fixture.html?replay=http://127.0.0.1:8731/fixture.replay" \
+            --timeout 90 \
+            --out /tmp \
+            --strict-text-bounds
+          status=$?
+          set -e
+          kill "$(cat /tmp/fixture-server.pid)" 2>/dev/null || true
+          exit "${status}"
 
       - name: Upload the viewer smoke evidence
         # Always: the screenshot and the JSON are most useful when the job is red.

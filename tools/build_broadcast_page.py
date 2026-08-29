@@ -28,33 +28,11 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # --- the elements the design note lists as removed -------------------------
-# Markup blocks, matched exactly. `#viewpanel` goes entirely: the board is a
-# fixed 13x13 grid with no off-frame area, so per the pin a fixed arena drops
-# the zoom bar and the minimap.
+# Markup blocks, matched exactly. `#viewpanel` is KEPT — zoom bar, minimap and
+# all: the world is 64x64 cells (1536x1536 native px) and the default view
+# shows 15 of them, so this board genuinely is larger than the frame, which is
+# exactly the condition the pin names.
 MARKUP_REMOVALS = [
-    # #viewpanel: minimap + zoom bar, with its explanatory comment
-    ("""    <!-- View controls: zoom the board with buttons/slider/keys/pinch (never a
-         plain scroll — that belongs to the page), and once zoomed, a minimap
-         with a white view box says which part of the board you are holding.
-         Click or drag the minimap to jump the view there. -->
-    <div id="viewpanel">
-      <div id="minimap" title="Click or drag to move the view">
-        <canvas id="minimap-canvas"></canvas>
-        <span class="mm-cap">View</span>
-      </div>
-      <div id="zoombar" role="group" aria-label="Board zoom">
-        <button class="zbtn" id="zoom-out" title="Zoom out (x)" aria-label="Zoom out">&minus;</button>
-        <input id="zoom-slider" type="range" min="0" max="1000" step="1" value="0"
-               aria-label="Board zoom" aria-valuetext="Fitted">
-        <button class="zbtn" id="zoom-in" title="Zoom in (z)" aria-label="Zoom in">+</button>
-        <span id="zoom-read" aria-live="off">FIT</span>
-      </div>
-    </div>
-""", """    <!-- CRAFTER: the view-controls panel is REMOVED. The board is a fixed
-         13x13 cell grid with no off-frame area — relayout() letterboxes it
-         whole at every width — so there is nothing to zoom into and nothing
-         for a minimap to locate. -->
-"""),
     # #povBadge: with one seat there is nothing to select
     ("""    <div id="povBadge">👁 POV lens — click to clear</div>
 """, """    <!-- CRAFTER: the POV badge is REMOVED — one seat, nothing to select. -->
@@ -83,41 +61,17 @@ MARKUP_REMOVALS = [
 # excising the wiring, is the rewrite the pin forbids.
 JS_REWRITES = [
     ("""    var badge = $('povBadge');""",
-     """    var badge = mgDetached('div');   // CRAFTER: POV badge removed"""),
+     """    var badge = cfDetached('div');   // CRAFTER: POV badge removed"""),
     ("""  // pov clear (togglePov lives in the shared chrome, driven via ctx.sendPov)
   $('povBadge').addEventListener('click', function () { send('v:-1'); });""",
      """  // CRAFTER: the POV-clear click target is removed with its badge."""),
     ("""    var hpEl = $('fpv-hp'), hpHtml = '';""",
-     """    var hpEl = mgDetached('span'), hpHtml = '';   // CRAFTER: no hit points"""),
+     """    var hpEl = cfDetached('span'), hpHtml = '';   // CRAFTER: no hit points"""),
     ("""    var gearEl = $('fpv-gear'), bits = [];""",
-     """    var gearEl = mgDetached('span'), bits = [];   // CRAFTER: no gear"""),
+     """    var gearEl = cfDetached('span'), bits = [];   // CRAFTER: no gear"""),
     ("""  var fpvMapEl = $('fpv-map'), fpvMapCanvas = $('fpv-map-canvas'), fpvMapCtx = null;""",
-     """  var fpvMapEl = mgDetached('div'), fpvMapCanvas = mgDetached('canvas'),
+     """  var fpvMapEl = cfDetached('div'), fpvMapCanvas = cfDetached('canvas'),
       fpvMapCtx = null;   // CRAFTER: the tactical inset is removed"""),
-    ("""  var minimapBox = $('minimap');
-  var zoomSlider = $('zoom-slider');
-  var zoomRead = $('zoom-read');
-  var btnZoomIn = $('zoom-in');
-  var btnZoomOut = $('zoom-out');""",
-     """  // CRAFTER: the view-controls panel is removed, so its wiring — kept
-  // verbatim below — drives detached nodes and touches nothing on the page.
-  var minimapBox = mgDetached('div');
-  var zoomSlider = mgDetached('input');
-  var zoomRead = mgDetached('span');
-  var btnZoomIn = mgDetached('button');
-  var btnZoomOut = mgDetached('button');"""),
-    ("""  // ?viewpanel=0 hides the #viewpanel overlay (zoom bar + minimap). This is an
-  // explicit opt-OUT only — the default (param absent) is unchanged for every
-  // existing embed, so the League Replayer still shows zoom + minimap. See the
-  // #271/#272 lesson: hiding the panel for ALL embeds broke the Replayer shell.
-  // Billboards (Lobby hero) and thumbnail capture append &viewpanel=0.
-  try {
-    if (new URLSearchParams(location.search).get('viewpanel') === '0')
-      document.body.setAttribute('data-noviewpanel', '1');
-  } catch (e) {}
-""",
-     """  // CRAFTER: the opt-out param goes with the panel it hid.
-"""),
     # There is ONE cog and it is red: the blue/green/yellow locker-room webps
     # are deleted with the teams they belonged to, so the loading scene must
     # not request them (four 404s per open otherwise).
@@ -127,11 +81,29 @@ JS_REWRITES = [
     # cannot reach it. Publish it: tools/ci/renderer_fixture.html drives the
     # SHIPPED chrome through its real context rather than a stand-in.
     ("""  if (window.PaintballChrome) window.PaintballChrome.install(PB_CTX);""",
-     """  window.MG_CTX = PB_CTX;
+     """  window.CF_CTX = PB_CTX;
   if (window.PaintballChrome) window.PaintballChrome.install(PB_CTX);"""),
+    # The board is LARGER THAN THE FRAME here (64x64 cells, 1536x1536 native
+    # px, 15 cells across by default), so the appended block arms a follow-cam
+    # over the kept #viewpanel. The core lives inside the page's IIFE; publish
+    # the handle rather than re-creating one.
     ("""  core.attachMinimap($('minimap-canvas'));""",
-     """  // CRAFTER: nothing to attach — broadcast_core.js tolerates never being
-  // attached (its surface stays null and its draw returns on the first guard)."""),
+     """  window.CF_CORE = core;   // CRAFTER: the follow-cam drives this handle
+  core.attachMinimap($('minimap-canvas'));"""),
+    # The starter's dblclick / '0' resetView re-fits the board. Here it also
+    # RE-ARMS the follow-cam and restores cameraCells, which is the design
+    # note's rule; a user pan disarms it.
+    ("""  canvas.addEventListener('dblclick', function (ev) {
+    ev.preventDefault();
+    core.resetView();
+  });""",
+     """  canvas.addEventListener('dblclick', function (ev) {
+    ev.preventDefault();
+    core.resetView();
+    if (window.CrafterChrome && window.CrafterChrome.armFollow) {
+      window.CrafterChrome.armFollow();
+    }
+  });"""),
 ]
 
 # The detached-node helper, injected right after the page's own `$` alias.
@@ -139,28 +111,28 @@ DETACHED_HELPER = ("""  var $ = C.$;""", """  var $ = C.$;
   // CRAFTER: a DETACHED stand-in for an element this game removed. The
   // starter's wiring for those elements is kept verbatim and pointed here, so
   // it runs harmlessly and no removed id exists in the document.
-  function mgDetached(tag) { return document.createElement(tag); }""")
+  function cfDetached(tag) { return document.createElement(tag); }""")
 
 # --- the vocabulary re-mapping table (design note, §Viewer) -----------------
 VOCABULARY = [
     ("""<div class="ec-thead"><span>Player</span><span>K</span><span>D</span><span>Clstr</span><span>Cap</span></div>""",
-     """<div class="ec-thead"><span>Task</span><span>Mission</span><span>Result</span><span>Turns</span><span>Credits</span></div>"""),
+     """<div class="ec-thead"><span>#</span><span>Achievement</span><span>Unlocked</span><span>Tick</span><span>Day</span></div>"""),
     ("""<div class="ec-thead"><span>Cog</span><span>Tags</span><span>Out</span><span>Paint</span></div>""",
-     """<div class="ec-thead"><span>Cog</span><span>Solved</span><span>Seen</span><span>Score</span></div>"""),
+     """<div class="ec-thead"><span>Cog</span><span>Unlocked</span><span>Survived</span><span>Score</span></div>"""),
     ("""<span class="fl-cap">Lives left</span>""",
-     """<span class="fl-cap">Tasks solved</span>"""),
+     """<span class="fl-cap">Achievements</span>"""),
     ("""<span class="fl-cap">Hill time</span>""",
-     """<span class="fl-cap">Cells seen</span>"""),
+     """<span class="fl-cap">Ticks survived</span>"""),
     ("""<span class="momentum-label">LIVES LEAD</span>""",
-     """<span class="momentum-label">PROGRESS</span>"""),
+     """<span class="momentum-label">ACHIEVEMENTS</span>"""),
     ("""<span class="lives-label pb-lbl">Hill</span>""",
-     """<span class="solved-label pb-lbl">Carrying</span>"""),
+     """<span class="vital-label pb-lbl">Carrying</span>"""),
     ("""<span class="lives-label">Lives</span>""",
-     """<span class="solved-label">Solved</span>"""),
-    # The locker-room loading scene: the plate is the starter's, the
-    # prep-talk lines are re-written for a cog reading a mission sentence.
+     """<span class="vital-label">Health</span>"""),
+    # The locker-room loading scene: the plate is the starter's, the prep-talk
+    # lines are re-written for a cog waking up alone in a wilderness.
     ("""Filling hoppers with fresh paint&hellip;""",
-     """Reading the mission&hellip;"""),
+     """Generating the world&hellip;"""),
     ("""      'Filling hoppers with fresh paint…',
       'Pump check: one, two. One, two…',
       'Polishing visors to a mirror shine…',
@@ -169,32 +141,36 @@ VOCABULARY = [
       'Topping off the CO₂…',
       'Chalking up the wheels…',
       'Reviewing the game plan…'""",
-     """      'Reading the mission…',
-      'Counting the cells you can see…',
-      'Colour-checking the keys…',
-      'Listening for the door…',
-      'Mapping the dark from memory…',
-      'Measuring the gap in the lava…',
-      'Turning to face the unknown…',
-      'Five tasks. Eleven turns each…'"""),
+     """      'Generating the world…',
+      'Salting the mountain with iron…',
+      'Filling the lake…',
+      'Planting the forest…',
+      'Burying one diamond, very deep…',
+      'Waking the cows…',
+      'Counting the hours until dark…',
+      'Twenty-two things you have never done…'"""),
     ("""In the locker room""", """Waiting for the cog"""),
     ("""Replay hash mismatch — showing recorded inputs""",
-     """Replay hash mismatch — showing recorded actions"""),
+     """Replay hash mismatch at tick N — showing recorded actions"""),
     ("""<div class="fpv-cap" id="fpv-cap">EYES</div>""",
-     """<div class="fpv-cap" id="fpv-cap">AGENT VIEW 7×7</div>"""),
+     """<div class="fpv-cap" id="fpv-cap">AGENT VIEW 9×9</div>"""),
     ("""title="Spoilers: kills / flag story / winner on the timeline ahead of the playhead (o)\"""",
-     """title="Spoilers: solved / failed tasks on the timeline ahead of the playhead (o)\""""),
+     """title="Spoilers: achievements and the death on the timeline ahead of the playhead (o)\""""),
+    # #zoom-read is re-labelled from FIT to the cells across; the game block
+    # rewrites it every frame, and this is the pre-stream value.
+    ("""<span id="zoom-read" aria-live="off">FIT</span>""",
+     """<span id="zoom-read" aria-live="off">15 CELLS</span>"""),
 ]
 
 # --- CSS rules for kinds this game never emits -----------------------------
 # tests/test_crafter_viewer.nim asserts the set of `.beat-marker.<kind>`
 # rules equals exactly the kinds the sim emits.
-DEAD_BEAT_KINDS = ["kill", "steal", "return", "capture",
+# `.beat-marker.kill` is RETARGETED, not removed: this game emits a `kill`
+# beat and says KILLED A ZOMBIE in the feed.
+DEAD_BEAT_KINDS = ["steal", "return", "capture",
                    "gamestart", "hillflip", "tagout", "gameover"]
 # Every id/class the design note removes; a surviving mention fails the check.
-REMOVED_NAMES = ["viewpanel", "minimap", "zoombar", "zoom-in", "zoom-out",
-                 "zoom-slider", "zoom-read", "povBadge", "fpv-hp", "fpv-gear",
-                 "fpv-map", "noviewpanel", "mm-cap", "zbtn"]
+REMOVED_NAMES = ["povBadge", "fpv-hp", "fpv-gear", "fpv-map"]
 
 BANNER = "CRAFTER additions to the inherited coworld-ctf chrome"
 

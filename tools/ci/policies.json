@@ -1,35 +1,35 @@
 [
   {
-    "name": "crafter-cartographer",
+    "name": "crafter-techtree",
     "run": "/bin/crafter-player",
     "env": {
-      "PLAYER_PROMPT": "Map first, then act, and never lose what you learned.\nTurn 1 of every task: read the sentence and write down in \"notes\" exactly what\nwould count as solving it - the object, the colour, the cell, the door. Then spend\nthe turn walking to the middle of the largest ? region with one \"goto\" to the\nnearest floor cell that touches ?, because a cell that touches ? is where new\ninformation is.\nEvery turn after that, in this order:\n1. If \"objects\" already contains everything the sentence names AND you can reach\n   it, stop exploring and go finish: \"goto\" it, then \"pickup\" or \"toggle\" or step\n   onto it. Finishing beats looking.\n2. If the sentence names a locked door and you are not carrying its key, find the\n   key first. A locked door is never worth a turn without the key in hand.\n3. Otherwise explore: \"goto\" the known floor cell adjacent to the most ? cells,\n   then add one or two \"forward\" so you actually cross into the unknown, then a\n   \"right\" so the next view is a different heading.\nRewrite \"notes\" EVERY turn as a compact list: the goal, the key colour and where\nit is, the door cells and their state, and which side of the board is still ?.\nNotes are the only thing you keep; anything you leave out you have lost.\nNever plan a path through ~ and never step forward onto a cell whose glyph you\ncannot see - if \"ahead\" is ? or ~, turn instead.\nIf \"last_plan\" says truncated, re-issue the SAME goto: you were partway there.\nIf it says unreachable, the route is not discovered yet - explore toward the\ntarget's side of the board instead.",
-      "PLAYER_POLICY_LABEL": "cartographer"
+      "PLAYER_PROMPT": "Climb the tree. Everything else is logistics.\nYour to-do list is \"achievements.locked\", top to bottom - it is already in\ndependency order. Every turn, find the FIRST item on it you could make progress\non this turn, and spend the whole turn on that one item. Never spend a turn\n\"getting ready\".\nTurn 1: goto the nearest tree, do x5, place_table, make_wood_pickaxe,\nmake_wood_sword. That is one turn and it clears four achievements. Do it.\nThen, in this order, and do not skip:\n1. stone: goto \"nearest.stone\", do x3, then place_stone once (that is a free\n   achievement you already have the material for).\n2. table again: you will have walked away from the first one. Carry 2 spare wood\n   and place_table WHERE YOU ARE MINING. A table costs one wood; walking back\n   costs a whole turn.\n3. make_stone_pickaxe, make_stone_sword, place_furnace - all next to that table.\n4. coal, then iron. Both are in the grey \"#\" country in \"region\"; iron sits\n   deeper, near \"=\" cave floor. If \"nearest.iron\" is null, goto the far edge of\n   the stone you know and mine INTO it: mining stone makes cave floor you can\n   walk on, so you tunnel with do x3, move, do x3, move.\n5. make_iron_pickaxe and make_iron_sword next to table AND furnace - place a new\n   pair down in the tunnel rather than walking home.\n6. diamond. It is the deepest thing in the mountain. Once you own the iron\n   pickaxe, tunnel toward the highest \"#\" region and keep going.\nKeep bars off zero and nothing more: drink when drink <= 3, eat when food <= 3,\nsleep ONLY when energy <= 2 and only after sealing yourself in with place_stone\non every open side. Any bar at 4 or more is a bar you are not allowed to spend a\nturn on.\nNever walk onto \"!\". Never plan more than 8 ticks when \"threats\" is non-empty -\nyou will just lose them to the interrupt.\nRewrite \"notes\" every turn as: table x,y - furnace x,y - the next item on the\nlist - the coordinates you are tunnelling toward.",
+      "PLAYER_POLICY_LABEL": "techtree"
     }
   },
   {
-    "name": "crafter-missionfirst",
+    "name": "crafter-homesteader",
     "run": "/bin/crafter-player",
     "env": {
-      "PLAYER_PROMPT": "The sentence is the whole plan. Parse it, then drive at it.\nSplit the mission into a verb and one or two referents, and say the parse out loud\non turn 1 - \"pick up blue ball; not seen yet; sweeping east\". Keep that sentence in\n\"say\" every turn, updated, because it is how you check you are still solving the\nright problem.\nThen, every turn:\n- \"go to X\"     : goto X, then \"face\" it. Done.\n- \"pick up X\"   : goto X, then {\"do\":\"pickup\"}. If you already carry something\n                  else, drop it first on a floor cell you can see.\n- \"put X next to Y\": carry X, goto a floor cell 4-adjacent to Y, face away from Y,\n                  and drop. If the cell next to Y is occupied, use the next one\n                  round - never drop into the cell Y itself.\n- \"open the D door\": if D is locked, carry its key first, goto the door, toggle.\n- \"make a Z\"    : you are being told nothing about HOW. Experiment. Pick the two\n                  objects you can reach fastest, carry one, drop it beside the\n                  other, and read \"productions\" next turn. Every firing you see is\n                  a rule you now own - write it in notes as \"a + b -> c\". When you\n                  have two products, put THOSE two together. Never repeat a pair\n                  that already fired to nothing.\n- \"get to the green goal square\": if G is in \"known\", goto it. If not, sweep: the\n  goal is almost always in the corner farthest from where you started.\nBudget: you get eleven turns. If you have spent five and the target is still\nunseen, stop being careful and cross the board in a straight line with goto plus\nforwards - an unsolved task scores the same whether you were tidy about it or not.\nLava is the only thing worth being careful about: never goto through it, never\nstep forward onto ~.",
-      "PLAYER_POLICY_LABEL": "missionfirst"
+      "PLAYER_PROMPT": "Build a base, then raid out of it. A dead cog unlocks nothing.\nTurn 1-2: find the spot. You want a cell with a tree and water both inside 8,\nand stone inside 12 if you can get it. Chop 4 wood, place_table, make both wood\ntools. Say where the base is and never forget it.\nEvery turn, run this checklist IN ORDER and act on the first thing that is true:\n- health <= 3, or a Z or K in \"threats\" within 2: fight or wall. If you have a\n  sword and it is one zombie, face it and do x3 - a dead zombie is an\n  achievement. If it is two, or you have no sword, place_stone into the gap and\n  walk away.\n- drink <= 4: goto nearest water, do until drink is 9. Water is free and never\n  runs out; being at 4 is a bug in your plan.\n- food <= 4: nearest U, goto it, do x4. If you have a ripe plant \"Y\", eat that\n  instead - it is a whole achievement and it grows back.\n- phase is \"night\" and you are not sealed: seal. place_stone on every open\n  neighbour you can afford, then sleep n=16. Waking with energy 9 is the\n  \"wake_up\" achievement and you will not get it any other way.\n- sapling in inventory and you have never placed one: place_plant on grass right\n  outside the door, then remember where - you are coming back for the fruit.\n- otherwise: raid. One trip out, one objective, back before dark. The objectives\n  in order are stone, then coal, then iron, then diamond, and you take the table\n  with you (2 wood) so you can craft in the field.\nRules you never break: never step on \"!\"; never sleep in the open; never let two\nbars sit under 3 at once; never spend the last three turns of the episode\nwalking - spend them doing anything at all that is still on the locked list,\nbecause an achievement unlocked on the last tick counts exactly the same.\n\"notes\" is your base: base x,y - what is stored - what is still locked - where\nyou were heading.",
+      "PLAYER_POLICY_LABEL": "homesteader"
     },
     "player": "ply_bac48eb1-662e-44f8-973d-f3e016dccf5d"
   },
   {
-    "name": "crafter-scout",
+    "name": "crafter-forager",
     "run": "/bin/crafter-player",
     "env": {
-      "PLAYER_SCRIPTED": "scout",
-      "PLAYER_POLICY_LABEL": "scout"
+      "PLAYER_SCRIPTED": "forager",
+      "PLAYER_POLICY_LABEL": "forager"
     }
   },
   {
-    "name": "crafter-bumper",
+    "name": "crafter-wanderer",
     "run": "/bin/crafter-player",
     "env": {
-      "PLAYER_SCRIPTED": "bumper",
-      "PLAYER_POLICY_LABEL": "bumper"
+      "PLAYER_SCRIPTED": "wanderer",
+      "PLAYER_POLICY_LABEL": "wanderer"
     }
   }
 ]
