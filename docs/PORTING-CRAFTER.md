@@ -226,3 +226,21 @@ way to say *why* every remaining turn is suddenly scripted, and phase 60 reads
 the same fact out of the replay either way. `budget` is not a beat — it does
 not reach the scrubber — and `tests/test_crafter_events.nim` pins the emitted
 set at exactly these twenty-two.
+
+### H. `fallback.cause` carries `throttled`, and never carries `disconnected`
+
+The note's §Degrade, never hang closes the cause enum at
+`timeout | parse_error | transport_error | no_credentials | rate_guard |
+budget_guard | disconnected`. This repo emits one cause outside it and never
+emits one that is in it:
+
+- **`throttled`** — the provider answered **429** and there is no other model
+  to rotate to (`src/crafter/llm.nim`, `src/crafter/decide.nim`). Folding it
+  into `rate_guard` would be a lie: `rate_guard` is this client's OWN rolling
+  60 s counter declining to issue a request, and it costs no network wait,
+  while `throttled` is the provider refusing one that was issued. Phase 60
+  needs to tell "we throttled ourselves" from "they throttled us".
+- **`disconnected`** — never emitted. There is exactly ONE seat; a seat whose
+  socket drops does not leave a round barrier waiting, because there is no
+  barrier. The run plays out on `forager` with the seat marked dead in
+  `results.deadSeats`, which is the same fact recorded in the right place.
