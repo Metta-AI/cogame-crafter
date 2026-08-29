@@ -244,3 +244,23 @@ emits one that is in it:
   socket drops does not leave a round barrier waiting, because there is no
   barrier. The run plays out on `forager` with the seat marked dead in
   `results.deadSeats`, which is the same fact recorded in the right place.
+
+### I. The cog and the creatures are committed image-model renders, not a `rig_art.nim` composite
+
+The note's §Art has the cog as `data/soldier_red.png` "composited by
+`rig_art.nim` into 4 facings × 2 sizes", with cows, zombies and skeletons
+composited from the same rig. There is no `rig_art.nim` in this repo. The
+**terrain** bed is exactly as the note describes it — one pixie bake at install
+over `data/arena_floor.png` and `client/art/walls/wall_{h,v}.jpg`, with the
+achievement icons cut from the baked tiles — but the cog and the three
+creatures are **committed PNG sprites** (`data/art/*.png`), split out of two
+`gemini-2.5-flash-image` renders under `scripts/art/source/` by
+`scripts/art/split_cog_sheet.py`.
+
+The renders are anchored on the shipped `data/soldier_red_front.png` master, so
+the cast is one style and one lineage; the art is committed, so nothing is
+downloaded at build or at runtime and the bundle is reproducible. What the
+divergence buys is a heading that is readable at a 24 px tile without a label
+— a re-tinted rig at that size reads as four identical smudges, and this board
+has `showPlayerLabels: false` and no text on the board layer at all, so the
+sprite is the only thing that can carry the facing.
