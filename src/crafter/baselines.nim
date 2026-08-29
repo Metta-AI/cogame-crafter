@@ -46,6 +46,14 @@ const DefaultBaselineParams* = BaselineParams(
   tieBreakByDistance: false
 )
 
+const
+  Standable = {tGrass, tSand, tPath}
+    ## Walkable AND not fatal. `Terrain.walkable()` includes lava by design —
+    ## stepping in is how a cog dies, not something the physics prevents — so
+    ## no baseline may ever use it to choose a step.
+  Buildable = {tGrass, tSand, tPath}
+  Placeable = {tGrass, tSand, tPath, tWater, tLava}
+
 proc parseBaseline*(text: string): Baseline =
   ## PLAYER_SCRIPTED values. Anything unrecognised is `forager`: a seat that
   ## says nothing useful still plays the published default rather than sitting
@@ -94,6 +102,8 @@ proc frontierCell(sim: SimServer,
 
 proc outwardFacing(sim: SimServer, x, y: int): Facing =
   ## The neighbour direction of the frontier cell that faces the most `?`.
+  ## A direction whose cell is KNOWN LAVA is never chosen: `move` walks into a
+  ## walkable cell and lava is walkable, so exploring toward one is suicide.
   result = sim.cog.facing
   var best = -1
   for dir in Facings:
@@ -102,11 +112,23 @@ proc outwardFacing(sim: SimServer, x, y: int): Facing =
       ny = y + FacingDy[dir]
     if not inBounds(nx, ny):
       continue
-    let score = (if sim.knownMap.known(nx, ny).seen: 0 else: 2) +
-      sim.knownMap.frontierScore(nx, ny)
+    let entry = sim.knownMap.known(nx, ny)
+    if entry.seen and entry.terrain == tLava:
+      continue
+    let score = (if entry.seen: 0 else: 2) + sim.knownMap.frontierScore(nx, ny)
     if score > best:
       best = score
       result = dir
+  ## If every neighbour is known lava, stand still rather than walk into one.
+  let
+    fx = x + FacingDx[result]
+    fy = y + FacingDy[result]
+  let chosen = sim.knownMap.known(fx, fy)
+  if chosen.seen and chosen.terrain == tLava:
+    for dir in Facings:
+      let entry = sim.knownMap.known(x + FacingDx[dir], y + FacingDy[dir])
+      if not (entry.seen and entry.terrain == tLava):
+        return dir
 
 proc knownAt(sim: SimServer, terrain: Terrain): tuple[found: bool; x, y: int] =
   let spot = sim.nearestKnown(terrain)
@@ -135,14 +157,13 @@ proc placePrefix(sim: SimServer, ok: set[Terrain]): tuple[found: bool,
       ay = sim.cog.y + FacingDy[dir]
       bx = ax + FacingDx[dir]
       by = ay + FacingDy[dir]
-    if sim.world.at(ax, ay) in ok and sim.world.at(bx, by) in ok and
+    ## The cell the cog STEPS ONTO must be plain ground: `move` walks into a
+    ## walkable cell and lava is walkable, so a step onto it is a death.
+    ## Only the cell it ends up FACING may be water or lava.
+    if sim.world.at(ax, ay) in Standable and sim.world.at(bx, by) in ok and
         sim.herd.creatureAt(ax, ay) < 0 and sim.herd.creatureAt(bx, by) < 0:
       return (true, @[Action(kind: akMove, dir: dir, n: 1)])
   (false, @[])
-
-const
-  Buildable = {tGrass, tSand, tPath}
-  Placeable = {tGrass, tSand, tPath, tWater, tLava}
 
 proc foragerPlan*(sim: SimServer, params = DefaultBaselineParams): Directive =
   ## THE deterministic priority ladder. Every turn the FIRST matching rule
@@ -231,7 +252,7 @@ proc foragerPlan*(sim: SimServer, params = DefaultBaselineParams): Directive =
     ## and it is also the only way to reach `wake_up`.
     var stones = 0
     while stones < min(params.shelterStones, sim.cog.inventory[rStone]) and
-        sim.world.at(front.x, front.y).walkable() and
+        sim.world.at(front.x, front.y) in Standable and
         sim.herd.creatureAt(front.x, front.y) < 0:
       result.addPrimitive(akPlaceStone)
       inc stones
@@ -405,17 +426,32 @@ proc wandererPlan*(sim: SimServer,
     dir = sim.cog.facing
   let cap = max(1, sim.config.maxActionsPerTurn)
   while result.actions.len + 2 <= cap:
-    let
-      nx = x + FacingDx[dir]
-      ny = y + FacingDy[dir]
-    let terrain = sim.world.at(nx, ny)
-    if terrain.walkable() and terrain != tLava:
-      result.actions.add(Action(kind: akMove, dir: dir, n: 2))
-      x = nx
-      y = ny
+    if sim.world.at(x + FacingDx[dir], y + FacingDy[dir]) in Standable:
+      ## `n = 2` only when BOTH cells are plain ground: the second step of a
+      ## `move` is a real step too, and lava does not stop it.
+      let twoSteps = sim.world.at(x + 2 * FacingDx[dir],
+                             y + 2 * FacingDy[dir]) in Standable
+      result.actions.add(Action(kind: akMove, dir: dir, n: (if twoSteps: 2 else: 1)))
+      x = x + FacingDx[dir]
+      y = y + FacingDy[dir]
+      if twoSteps:
+        x = x + FacingDx[dir]
+        y = y + FacingDy[dir]
     else:
-      dir = Facings[(ord(dir) + 1) mod 4]
+      ## Rotate clockwise past anything that is not plain ground. A `move`
+      ## walks INTO a walkable cell and lava is walkable, so a blind rotation
+      ## into it would be the control policy killing itself on tick one.
+      var turned = dir
+      for step in 1 .. 4:
+        turned = Facings[(ord(turned) + 1) mod 4]
+        if sim.world.at(x + FacingDx[turned], y + FacingDy[turned]) notin
+            {tLava}:
+          break
+      dir = turned
       result.actions.add(Action(kind: akMove, dir: dir, n: 1))
+      if sim.world.at(x + FacingDx[dir], y + FacingDy[dir]) in Standable:
+        x = x + FacingDx[dir]
+        y = y + FacingDy[dir]
     result.addPrimitive(akDo, 1)
 
 proc scriptedPlan*(sim: SimServer, kind: Baseline,

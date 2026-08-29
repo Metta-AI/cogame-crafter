@@ -1,224 +1,277 @@
-## Bounded orders / legality on the scripted baselines and the driver —
-## design note §Tests items 17..23.
+## Bounded orders and legality on the scripted baselines, the driver and the
+## reply validator — design note §Tests items 19..25.
 
-import std/[json, random, strutils, unicode, unittest]
-import crafter/[sim, driver, directives, baselines]
-import crafter/decide
+import std/[json, random, unicode, unittest]
+import crafter/[sim, driver, directives, baselines, decide]
 import helpers
 
-proc worldStates(count: int): seq[SimServer] =
-  ## `count` pseudo-random world states: every family, both variants, varied
-  ## known maps, carried and empty-handed, adjacent to lava and to obstacles.
+const Verbs = block:
+  var names: seq[string]
+  for kind in ActionKind:
+    names.add($kind)
+  names
+
+proc pseudoStates(count: int): seq[SimServer] =
+  ## `count` pseudo-random world states across both variants, day and night,
+  ## every vitals combination, empty and full inventories, and adjacent to
+  ## lava, water and hostiles.
   var rng = initRand(20260828)
   for i in 0 ..< count:
-    let variant = if i mod 2 == 0: "gauntlet" else: "xland"
-    var sim = initSimServer(testConfig(variant, 1 + rng.rand(9999)))
-    sim.phase = Playing
-    sim.startTask(rng.rand(sim.config.taskCount - 1))
-    sim.randomKnownMap(rng, 20 + rng.rand(75))
+    let variant = if i mod 2 == 0: "standard" else: "longnight"
+    var sim = startedSim(testConfig(variant, seed = 100 + i))
+    sim.tickCount = sim.gameStartTick + rng.rand(0 .. 1300)
+    sim.randomKnownMap(rng, rng.rand(5 .. 95))
+    for vital in Vital:
+      sim.cog.vitals[vital] = rng.rand(0 .. VitalMax)
+    for resource in Resource:
+      sim.cog.inventory[resource] =
+        if i mod 3 == 0: 0 elif i mod 3 == 1: InventoryMax
+        else: rng.rand(0 .. InventoryMax)
+    for tool in Tool:
+      sim.cog.tools[tool] = rng.rand(0 .. 1) == 1
+    sim.cog.facing = Facings[rng.rand(0 .. 3)]
+    ## Put lava, water and a hostile right next to the cog on every third
+    ## state, so the "never suicide" rule is actually exercised.
     if i mod 3 == 0:
-      sim.agent.carrying = ObjectRef(kind: ckKey, colour: Colours[rng.rand(5)])
-    sim.agent.dir = Dirs[rng.rand(3)]
-    ## Put the agent next to something dangerous now and then.
+      sim.world.setAt(sim.cog.x + 1, sim.cog.y, tLava)
+      sim.world.setAt(sim.cog.x - 1, sim.cog.y, tWater)
+      sim.world.setAt(sim.cog.x, sim.cog.y - 1, tLava)
+      sim.terrainHash = sim.world.terrainDigest()
+      discard sim.knownMap.mergeVisible(sim.world, sim.cog.x, sim.cog.y,
+                                        sim.tickCount)
+      sim.herd.list.add(Creature(kind: ckZombie, x: sim.cog.x + 2,
+                                 y: sim.cog.y + 1, hp: 5, alive: true))
+      sim.herd.list.add(Creature(kind: ckSkeleton, x: sim.cog.x - 2,
+                                 y: sim.cog.y - 2, hp: 3, alive: true))
     if i mod 5 == 0:
-      let front = sim.agent.ahead()
-      if inBounds(front.x, front.y) and front.x > 0 and front.y > 0 and
-          front.x < GridSize - 1 and front.y < GridSize - 1:
-        sim.task.grid.setAt(front.x, front.y, Cell(kind: ckLava))
-        sim.knownMap.cells[idx(front.x, front.y)].seen = true
-        sim.knownMap.cells[idx(front.x, front.y)].cell = Cell(kind: ckLava)
-    if i mod 7 == 0:
-      let front = sim.agent.ahead()
-      if inBounds(front.x, front.y) and front.x > 0 and front.y > 0 and
-          front.x < GridSize - 1 and front.y < GridSize - 1:
-        sim.task.grid.setAt(front.x, front.y,
-          Cell(kind: ckBall, colour: coGrey, obstacle: true))
-        sim.knownMap.cells[idx(front.x, front.y)].seen = true
-        sim.knownMap.cells[idx(front.x, front.y)].cell =
-          Cell(kind: ckBall, colour: coGrey, obstacle: true)
+      sim.herd.list.add(Creature(kind: ckCow, x: sim.cog.x + 3,
+                                 y: sim.cog.y, hp: 3, alive: true))
     result.add(sim)
 
-suite "crafter driver and baselines":
-  let states = worldStates(300)
+suite "the scripted baselines are bounded and legal":
+  let states = pseudoStates(300)
 
-  test "17. baselines are bounded":
-    for sim in states:
-      for kind in [blScout, blBumper]:
+  test "baselines are bounded":
+    ## Item 19.
+    for kind in [blForager, blWanderer]:
+      for sim in states:
         let plan = scriptedPlan(sim, kind)
         check plan.actions.len <= sim.config.maxActionsPerTurn
-        check plan.actions.len <= 12
-        for action in plan.actions:
-          check action.kind in ActionKind.low .. ActionKind.high
-          if action.kind == akGoto:
-            check action.x in 0 ..< GridSize
-            check action.y in 0 ..< GridSize
-          if action.kind == akFace:
-            check action.dir in Dirs
-        ## A baseline that narrated would make the feed lie about which seats
-        ## are LLMs.
         check plan.say.len == 0
         check plan.notes.len == 0
-        let record = boundedDirectiveRecord(plan, 1, sim.taskIndex, 0, "Alpha",
-          @[], false, 0, 0, nil)
+        check plan.source == dsScripted
+        for action in plan.actions:
+          check $action.kind in Verbs
+          case action.kind
+          of akGoto:
+            check action.x in 0 ..< WorldSize
+            check action.y in 0 ..< WorldSize
+          of akMove:
+            check action.n in 1 .. 12
+          of akDo:
+            check action.n in 1 .. 12
+          of akSleep:
+            check action.n in 1 .. 24
+          else:
+            check action.n == 1
+        ## The serialised directive stays small.
+        let record = $plan.directiveRecord(1, sim.tickCount, 0, seatAlias(0),
+          @[], false, 0, 0, "", nil)
         check record.len <= 1024
 
-  test "18. baselines never suicide":
-    for sim in states:
-      for kind in [blScout, blBumper]:
+  test "baselines never suicide, and forager never routes through the unknown":
+    ## Item 20.
+    for kind in [blForager, blWanderer]:
+      for sim in states:
         let plan = scriptedPlan(sim, kind)
-        let expansion = expandPlan(sim.knownMap, sim.agent.x, sim.agent.y,
-          sim.agent.dir, plan.actions, sim.config.macroPrimitiveCap,
-          sim.config.turnTicks)
-        ## Walk the deterministic expansion against the KNOWN map and check it
-        ## never steps onto a known lava cell or forwards into a known
-        ## obstacle cell.
-        var
-          x = sim.agent.x
-          y = sim.agent.y
-          dir = sim.agent.dir
+        let expansion = expandPlan(sim.knownMap, sim.cog.x, sim.cog.y,
+          plan.actions, sim.config.macroPrimitiveCap, sim.config.turnTicks,
+          sim.hostileCells())
+        var x = sim.cog.x
+        var y = sim.cog.y
         for primitive in expansion.primitives:
-          case primitive
-          of pLeft: dir = Dir((ord(dir) + 3) mod 4)
-          of pRight: dir = Dir((ord(dir) + 1) mod 4)
-          of pForward:
+          let moving = moveFacing(primitive)
+          if not moving.ok:
+            continue
+          let
+            nx = x + FacingDx[moving.dir]
+            ny = y + FacingDy[moving.dir]
+          let entry = sim.knownMap.known(nx, ny)
+          ## A step onto a cell the cog KNOWS is lava is suicide.
+          check not (entry.seen and entry.terrain == tLava)
+          if sim.world.at(nx, ny).walkable():
+            x = nx
+            y = ny
+        ## The BFS the forager's `goto` runs on never crosses `?`.
+        for action in plan.actions:
+          if action.kind != akGoto:
+            continue
+          let walk = gotoPrimitives(sim.knownMap, sim.cog.x, sim.cog.y,
+            action.x, action.y, sim.config.macroPrimitiveCap)
+          var wx = sim.cog.x
+          var wy = sim.cog.y
+          for primitive in walk.primitives:
+            let moving = moveFacing(primitive)
+            if not moving.ok:
+              continue
             let
-              nx = x + DirDx[dir]
-              ny = y + DirDy[dir]
-            let entry = sim.knownMap.known(nx, ny)
-            if entry.seen:
-              check entry.cell.kind != ckLava
-              check not entry.cell.obstacle
-              if entry.cell.passable():
-                x = nx
-                y = ny
-          else: discard
+              nx = wx + FacingDx[moving.dir]
+              ny = wy + FacingDy[moving.dir]
+            if sim.knownMap.traversable(nx, ny):
+              check sim.knownMap.known(nx, ny).seen
+              wx = nx
+              wy = ny
 
-  test "19. the driver never produces an illegal primitive":
-    for sim in states:
-      for kind in [blScout, blBumper]:
+  test "the driver never produces an illegal primitive":
+    ## Item 21.
+    for kind in [blForager, blWanderer]:
+      for sim in states:
         let plan = scriptedPlan(sim, kind)
-        let expansion = expandPlan(sim.knownMap, sim.agent.x, sim.agent.y,
-          sim.agent.dir, plan.actions, sim.config.macroPrimitiveCap,
-          sim.config.turnTicks)
+        let expansion = expandPlan(sim.knownMap, sim.cog.x, sim.cog.y,
+          plan.actions, sim.config.macroPrimitiveCap, sim.config.turnTicks,
+          sim.hostileCells())
         check expansion.primitives.len <= sim.config.turnTicks
         for primitive in expansion.primitives:
-          check primitive in Primitive.low .. Primitive.high
-        ## A macro expands to at most macroPrimitiveCap primitives.
+          check ord(primitive) in ord(low(Primitive)) .. ord(high(Primitive))
+        ## A macro expands to at most macroPrimitiveCap.
         for action in plan.actions:
-          if action.kind != akGoto: continue
-          let walk = gotoPrimitives(sim.knownMap, sim.agent.x, sim.agent.y,
-            sim.agent.dir, action.x, action.y, sim.config.macroPrimitiveCap)
+          if action.kind != akGoto:
+            continue
+          let walk = gotoPrimitives(sim.knownMap, sim.cog.x, sim.cog.y,
+            action.x, action.y, sim.config.macroPrimitiveCap)
           check walk.primitives.len <= sim.config.macroPrimitiveCap
-    ## An empty queue yields `wait`, never nothing.
-    var sim = initSimServer(testConfig())
-    sim.phase = Playing
-    sim.startTask(0)
+    ## An EMPTY queue yields `noop`, never nothing: a turn is turnTicks ticks.
+    var sim = startedSim(testConfig())
+    discard sim.beginTurn()
     sim.installPlan(@[], false, 0, 0)
     sim.stepTick()
-    check sim.executed == @[pWait]
+    check sim.executed == @[pNoop]
 
-  test "20. the fallback IS the scout proc":
-    ## The decision engine's fallback path and the `scout` baseline resolve to
-    ## the same proc, so they cannot drift.
-    for sim in states[0 ..< 40]:
-      let viaBaseline = scriptedPlan(sim, blScout)
-      let viaFallback = scoutPlan(sim)
-      check viaBaseline.actions == viaFallback.actions
-    check scoutFallback(states[0]).actions == scoutPlan(states[0]).actions
-    check scoutFallback(states[0]).source == dsFallback
+  test "the fallback IS the forager proc":
+    ## Item 22: the decision engine's fallback path and the `forager` baseline
+    ## resolve to the same proc, so they cannot drift.
+    for sim in states[0 .. 39]:
+      let fallback = foragerFallback(sim)
+      let baseline = scriptedPlan(sim, blForager)
+      check fallback.actions == baseline.actions
+      check fallback.source == dsFallback
+      check baseline.source == dsScripted
 
-  test "21. reply validation":
-    let cap = 12
-    ## The schema is accepted.
-    let good = parseDirective(parseJson("""
-      {"actions":[{"do":"goto","x":6,"y":3},{"do":"toggle"},{"do":"forward"}],
-       "say":"opening the door","notes":"the key was at (2,9)"}"""), cap)
-    check good.actions.len == 3
-    check good.actions[0].kind == akGoto
-    check good.dropped == 0
-    ## An invalid action is DROPPED, never rewritten.
-    let dropped = parseDirective(parseJson("""
-      {"actions":[{"do":"teleport"},{"do":"goto","x":"nope","y":3},
-                  {"do":"face","dir":"up"},{"do":"forward"}]}"""), cap)
-    check dropped.actions.len == 1
-    check dropped.actions[0].kind == akForward
-    check dropped.dropped == 3
-    ## goto coordinates are CLAMPED into 0..12.
-    let clamped = parseDirective(parseJson("""
-      {"actions":[{"do":"goto","x":-9,"y":99}]}"""), cap)
-    check clamped.actions[0].x == 0
-    check clamped.actions[0].y == GridSize - 1
-    ## `do` is lower-cased and `dir` case-folded.
-    let folded = parseDirective(parseJson("""
-      {"actions":[{"do":"FORWARD"},{"do":"Face","dir":"N"},
-                  {"do":"face","dir":"South"}]}"""), cap)
-    check folded.actions.len == 3
-    check folded.actions[1].dir == dirNorth
-    check folded.actions[2].dir == dirSouth
-    ## A say-only reply is USABLE.
-    let sayOnly = parseDirective(parseJson("""{"say":"thinking"}"""), cap)
-    check sayOnly.actions.len == 0
-    check sayOnly.say == "thinking"
-    ## A non-object is a parse failure.
+suite "reply validation":
+  test "the validator accepts the schema and drops what does not validate":
+    ## Item 23.
+    let payload = parseJson("""{"actions":[
+      {"act":"goto","x":35,"y":25},
+      {"act":"do","n":4},
+      {"act":"make_stone_sword"},
+      {"act":"MOVE-UP"},
+      {"act":"move","dir":"N","n":99},
+      {"act":"sleep","n":40},
+      {"act":"goto","y":3},
+      {"act":"move","dir":"sideways"},
+      {"act":"teleport"},
+      {"act":"goto","x":-4,"y":900}],
+      "say":"planning","notes":"scratch"}""")
+    let directive = parseDirective(payload, 12)
+    ## Dropped, never rewritten: the bad goto, the bad dir and the unknown verb.
+    check directive.dropped == 3
+    let kinds = block:
+      var names: seq[string]
+      for action in directive.actions:
+        names.add($action.kind)
+      names
+    check kinds == @["goto", "do", "make_stone_sword", "move_up", "move",
+                     "sleep", "goto"]
+    ## `n` is clamped into its range; `goto` coordinates are clamped to 0..63.
+    check directive.actions[1].n == 4
+    check directive.actions[4].n == 12          ## move caps at 12
+    check directive.actions[4].dir == fUp       ## "N" case-folds to up
+    check directive.actions[5].n == 24          ## sleep caps at 24
+    check directive.actions[6].x == 0
+    check directive.actions[6].y == WorldSize - 1
+
+  test "a say-only reply is usable; a non-object is not":
+    var directive = parseDirective(parseJson("""{"say":"thinking"}"""), 12)
+    check directive.actions.len == 0
+    check directive.say == "thinking"
     expect DirectiveError:
-      discard parseDirective(parseJson("""[1,2,3]"""), cap)
-    ## actions are capped at 12 and the surplus counted.
-    var many = "{\"actions\":["
-    for i in 0 ..< 30:
-      if i > 0: many.add(",")
-      many.add("{\"do\":\"wait\"}")
-    many.add("]}")
-    let capped = parseDirective(parseJson(many), cap)
-    check capped.actions.len == 12
-    check capped.overCap == 18
-    ## say/notes truncate on RUNE boundaries at 140/300, with 4-byte emoji
-    ## sitting exactly on the boundary.
-    var emoji = ""
-    for i in 0 ..< 400:
-      emoji.add("\xF0\x9F\xA7\xA9")           ## U+1F9E9, four bytes
-    let runes = parseDirective(%*{"actions": [], "say": emoji,
-                                  "notes": emoji}, cap)
-    check runes.say.runeLen == MaxSayRunes
-    check runes.notes.runeLen == MaxNoteRunes
-    check runes.say.validateUtf8() == -1
-    check runes.notes.validateUtf8() == -1
-    check runes.say.len == MaxSayRunes * 4       ## whole codepoints only
-    ## The tolerant extractor: fences and trailing prose.
-    check extractJsonObject("```json\n{\"actions\":[]}\n```\nthat's my plan"
-      ){"actions"}.len == 0
-    ## truncated / dropped / unreachable are reported back accurately.
-    var sim = initSimServer(testConfig())
-    sim.phase = Playing
-    sim.startTask(0)
-    var long: seq[Action]
-    for i in 0 ..< 20:
-      long.add(Action(kind: akForward))
-    let expansion = expandPlan(sim.knownMap, sim.agent.x, sim.agent.y,
-      sim.agent.dir, long, 40, 12)
-    check expansion.primitives.len == 12
-    check expansion.truncated
-    let unreachable = expandPlan(sim.knownMap, sim.agent.x, sim.agent.y,
-      sim.agent.dir, @[Action(kind: akGoto, x: 11, y: 11)], 40, 12)
-    check unreachable.unreachable == 1
-    check unreachable.primitives.len == 0
+      discard parseDirective(parseJson("[]"), 12)
+    expect DirectiveError:
+      discard extractJsonObject("no braces at all")
+    ## Fence-tolerant, prose-tolerant extraction.
+    let fenced = extractJsonObject(
+      "here you go:\n```json\n{\"say\":\"x\"}\n```\nok")
+    check fenced{"say"}.getStr() == "x"
 
-  test "22. the shipped baseline tuning is the swept pick":
-    let swept = parseJson(readRepo("tools/ci/baseline_tuning.json"))
-    let pick = swept["pick"]
-    check DefaultBaselineParams.frontierAdjacencyWeight ==
-      pick["frontierAdjacencyWeight"].getInt()
-    check DefaultBaselineParams.spinTurns == pick["spinTurns"].getInt()
-    check DefaultBaselineParams.tieBreakByDistance ==
-      pick["tieBreakByDistance"].getBool()
-    check swept["grid"].len >= 4
+  test "say and notes truncate on RUNE boundaries with 4-byte emoji on the cap":
+    ## Item 23's rune clause. A byte slice would cut a codepoint in half and
+    ## the replay would then fail a strict UTF-8 parser.
+    let emoji = "\u{1F9E9}"                     ## a 4-byte codepoint
+    var say = ""
+    for i in 0 ..< MaxSayRunes + 40:
+      say.add(emoji)
+    var notes = ""
+    for i in 0 ..< MaxNoteRunes + 40:
+      notes.add(emoji)
+    let directive = parseDirective(%*{"say": say, "notes": notes}, 12)
+    check directive.say.runeLen == MaxSayRunes
+    check directive.notes.runeLen == MaxNoteRunes
+    check directive.say.len == MaxSayRunes * 4  ## whole codepoints, every one
+    check directive.notes.validateUtf8() == -1
+    check directive.say.validateUtf8() == -1
 
-  test "23. scout beats bumper":
-    ## The two controls are genuinely different controllers and neither is a
-    ## zero.
-    var scoutTotal = 0
-    var bumperTotal = 0
-    for seed in 1 .. 100:
-      scoutTotal += playScripted(testConfig("gauntlet", seed), blScout).tasksSolved()
-      bumperTotal += playScripted(testConfig("gauntlet", seed), blBumper).tasksSolved()
-    check scoutTotal > bumperTotal
-    check bumperTotal >= 1
+  test "actions cap at 12 and the surplus is counted, not dropped silently":
+    var entries = newJArray()
+    for i in 0 .. 19:
+      entries.add(%*{"act": "do"})
+    let directive = parseDirective(%*{"actions": entries}, 12)
+    check directive.actions.len == 12
+    check directive.overCap == 8
+    check directive.dropped == 0
+
+  test "truncated, dropped, unreachable and interrupted are reported back":
+    var sim = startedSim(testConfig())
+    sim.clearAroundForTest()
+    var directive = Directive(source: dsLlm)
+    for i in 0 .. 29:
+      directive.actions.add(Action(kind: akDo, n: 1))
+    directive.actions.add(Action(kind: akGoto, x: 2, y: 2, n: 1))
+    directive.dropped = 2
+    directive.overCap = 3
+    sim.lastInterrupted = "hurt_by_zombie"
+    let record = parseJson(sim.applyDirective(directive, nil))
+    check record["truncated"].getBool()
+    check record["unreachable"].getInt() == 1
+    check record["dropped"].getInt() == 3
+    check record["interrupted"].getStr() == "hurt_by_zombie"
+    check sim.repliesRepaired == 2
+    let observation = sim.observationJson(includeNotes = true)
+    check observation["last_plan"]["truncated"].getBool()
+    check observation["last_plan"]["unreachable"].getInt() == 1
+
+suite "baseline tuning and the controls":
+  test "the shipped thresholds equal the swept pick":
+    ## Item 24.
+    let sweep = parseJson(readRepo("tools/ci/baseline_tuning.json"))
+    let pick = sweep["pick"]
+    check pick["thirstThreshold"].getInt() == DefaultBaselineParams.thirstThreshold
+    check pick["hungerThreshold"].getInt() == DefaultBaselineParams.hungerThreshold
+    check pick["shelterStones"].getInt() == DefaultBaselineParams.shelterStones
+    check pick["sleepTicks"].getInt() == DefaultBaselineParams.sleepTicks
+    check pick["restThreshold"].getInt() == DefaultBaselineParams.restThreshold
+    check pick["exploreSteps"].getInt() == DefaultBaselineParams.exploreSteps
+    check pick["tieBreakByDistance"].getBool() ==
+      DefaultBaselineParams.tieBreakByDistance
+    check sweep["grid"].len > 1
+
+  test "forager beats wanderer, and wanderer is not a zero":
+    ## Item 25: over 100 seeds of each variant.
+    for variant in ["standard", "longnight"]:
+      var forager = 0
+      var wanderer = 0
+      for seed in 1 .. 100:
+        let config = testConfig(variant, seed)
+        forager += playScripted(config, blForager).achievementsUnlocked()
+        wanderer += playScripted(config, blWanderer).achievementsUnlocked()
+      check forager > wanderer
+      check wanderer >= 1

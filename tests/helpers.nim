@@ -63,6 +63,16 @@ proc playScripted*(config: GameConfig, kind = blForager,
   if result.phase == Playing:
     result.finish(erComplete, edTurnCap)
 
+proc clearAroundForTest*(sim: var SimServer, radius = 3, terrain = tGrass) =
+  ## Flatten the ground around the cog so a test is about the rule it names
+  ## and not about whatever the generator happened to put there.
+  for dy in -radius .. radius:
+    for dx in -radius .. radius:
+      sim.world.setAt(sim.cog.x + dx, sim.cog.y + dy, terrain)
+  sim.terrainHash = sim.world.terrainDigest()
+  discard sim.knownMap.mergeVisible(sim.world, sim.cog.x, sim.cog.y,
+                                    sim.tickCount)
+
 proc revealAll*(sim: var SimServer) =
   ## Reveal the whole true grid into the known map — the state a `goto` test
   ## needs when it wants the BFS to be about the terrain, not about

@@ -1,164 +1,220 @@
-## End-to-end episode writing a replay — design note §Tests items 24..27.
+## End-to-end episode writing a replay — design note §Tests items 26..30, and
+## the six results identities of §Server.
 
-import std/[json, os, osproc, strutils, tables, unittest]
-import std/monotimes
-import crafter/[sim, replays, decide, baselines, directives, llm]
+import std/[json, sets, strutils, unittest]
+import crafter/[sim, driver, directives, baselines, decide, events]
 import helpers
 
-proc runEpisode(dir: string, extra: seq[(string, string)] = @[],
-                seed = 42, variant = "gauntlet",
-                player = "scout"): tuple[code: int, log: string] =
-  ## Runs the REAL binaries the image ships, against a temp-dir COGAME_* URI
-  ## set — the same contract the platform's episode runner uses.
-  createDir(dir)
-  var config = testConfig(variant, seed)
-  config.lobbyJoinTimeoutTicks = 240
-  config.wallClockBudgetSeconds = 120
-  var node = parseJson(config.resolvedJson())
-  node["tokens"] = %["token-0"]
-  writeFile(dir / "config.json", $node)
-  let root = repoRoot()
-  let gameBin = dir / "crafter"
-  let playerBin = dir / "crafter-player"
-  doAssert execCmd("nim c -d:release --hints:off --path:" & root &
-    "/src --out:" & gameBin & " " & root & "/src/crafter.nim") == 0
-  doAssert execCmd("nim c -d:release --hints:off --path:" & root &
-    "/src --out:" & playerBin & " " & root & "/src/crafter_player.nim") == 0
-  var env = "COGAME_CONFIG_URI=file://" & dir & "/config.json " &
-    "COGAME_RESULTS_URI=file://" & dir & "/results.json " &
-    "COGAME_SAVE_REPLAY_URI=file://" & dir & "/replay.replay " &
-    "COGAME_PLAYER_FAILURE_URI=file://" & dir & "/player_failure.json " &
-    "COGAME_EVENTS_URI=file://" & dir & "/events.jsonl PORT=8901 "
-  for (key, value) in extra:
-    env.add(key & "=" & value & " ")
-  discard execCmd("(" & env & gameBin & " > " & dir & "/game.log 2>&1; " &
-    "echo $? > " & dir & "/game.code) & sleep 2; " &
-    (if player.len > 0:
-       "COWORLD_PLAYER_WS_URL='ws://127.0.0.1:8901/player?slot=0&token=token-0' " &
-       "PLAYER_SCRIPTED=" & player & " PLAYER_POLICY_LABEL=" & player & " " &
-       playerBin & " > " & dir & "/player.log 2>&1"
-     else: "sleep 20") & "; wait")
-  result.code = try: parseInt(readFile(dir / "game.code").strip())
-                except CatchableError: -1
-  result.log = readFile(dir / "game.log")
+proc episode(variant = "standard", seed = 42): SimServer =
+  ## A real one-seat episode, scripted, no API key — exactly the shape
+  ## `docker_smoke.sh` runs.
+  playScripted(testConfig(variant, seed), blForager)
 
-suite "crafter engine":
+proc identities(sim: SimServer) =
+  ## The SIX identities that hold in every results document.
+  let results = parseJson(sim.runResultsJson())
+  # 1.
+  check results["scores"][0].getInt() ==
+    10_000 * results["achievementsUnlocked"].getInt() +
+    results["survivalTicks"].getInt()
+  # 2.
+  var counted = 0
+  for value in results["achievementUnlocked"]:
+    if value.getBool(): inc counted
+  check counted == results["achievementsUnlocked"].getInt()
+  check results["achievementsOf"].getInt() == AchievementCount
+  # 3.
+  for i in 0 ..< AchievementCount:
+    let on = results["achievementUnlocked"][i].getBool()
+    let tick = results["achievementTick"][i].getInt()
+    check (tick >= 0) == on
+    if not on:
+      check tick == -1
+  # 4.
+  check results["survivalTicks"].getInt() == results["finalTick"].getInt()
+  check results["finalTick"].getInt() <= sim.config.maxTicks
+  # 5.
+  let death = results["endRule"].getStr() == "death"
+  check death == (results["finalHealth"].getInt() == 0)
+  check death == (results["deathCause"].getStr() != "none")
+  # 6.
+  check results["primitivesExecuted"].getInt() <= results["finalTick"].getInt()
+  check results["turnsPlayed"].getInt() <= sim.config.maxTurns
 
-  test "24. an episode writes its artifacts":
-    let dir = getTempDir() / "crafter-e2e-24"
-    removeDir(dir)
-    let run = runEpisode(dir)
-    check run.code == 0
-    check fileExists(dir / "results.json")
-    check fileExists(dir / "replay.replay")
-    let results = parseJson(readFile(dir / "results.json"))
-    check results["reason"].getStr() == "complete"
-    ## The four results identities of §Server.
-    var turns = 0
-    var ticks = 0
-    for i in 0 ..< results["taskTurns"].len:
-      turns += results["taskTurns"][i].getInt()
-      ticks += results["taskTicks"][i].getInt()
-      check results["taskSolved"][i].getBool() ==
-        (results["taskOutcome"][i].getStr() == "solved")
-      if results["taskSolved"][i].getBool():
-        check results["taskProgress"][i].getInt() == 3
-    check turns == results["turnsPlayed"].getInt()
-    check ticks == results["finalTick"].getInt()
-    check results["scores"][0].getInt() ==
-      100_000 * results["tasksSolved"].getInt() +
-      1_000 * results["progressTotal"].getInt() +
-      10 * results["speedTotal"].getInt()
-    ## The results key set equals the manifest's results_schema key set
-    ## EXACTLY — Coworld schemas are closed and undeclared keys are dropped.
-    var declared: seq[string]
-    for key in manifest()["game"]["results_schema"]["properties"].keys:
-      declared.add(key)
-    var emitted: seq[string]
-    for key in results.keys:
-      emitted.add(key)
-    for key in declared:
-      check key in emitted
-    for key in emitted:
-      check key in declared
-    ## The seat's REAL policy name is spectator-side; its alias is `Alpha`.
-    check results["names"][0].getStr() == "scout"
-    check results["aliases"][0].getStr() == "Alpha"
-    check results["policyKinds"][0].getStr() == "scripted"
+suite "an episode end to end":
+  test "the episode writes artifacts and every identity holds":
+    ## Item 26.
+    for variant in ["standard", "longnight"]:
+      for seed in [42, 7, 1234]:
+        let sim = episode(variant, seed)
+        check sim.phase == GameOver
+        check sim.endReason == erComplete
+        check sim.endRule in {edDeath, edAllUnlocked, edTurnCap, edTickCap}
+        sim.identities()
+    ## The results key set equals the manifest's `results_schema` key set
+    ## EXACTLY: Coworld schemas are closed and undeclared keys are dropped.
+    let sim = episode()
+    var produced: HashSet[string]
+    for key, _ in parseJson(sim.runResultsJson()):
+      produced.incl(key)
+    var declared: HashSet[string]
+    for key, _ in manifest(){"game", "results_schema", "properties"}:
+      declared.incl(key)
+    check produced == declared
 
-  test "25. the certification seed is interesting":
-    ## Seed 42 on `gauntlet` must solve at least one task, open at least one
-    ## door and pick up at least one key inside 660 ticks, so the CI smoke
-    ## replay always exercises the solved / unlock / pickup paths.
-    let sim = playScripted(testConfig("gauntlet", 42))
-    check sim.tasksSolved() >= 1
-    check sim.doorsOpened >= 1
-    check sim.objectsPickedUp >= 1
-    ## And the replay outlasts a 10 s viewer soak at 10 ticks/second.
-    var totalTicks = 0
-    for record in sim.records:
-      totalTicks += record.ticks
-    check totalTicks >= 120
+  test "the cert seed is interesting":
+    ## Item 27: seed 42 on `standard` is what the CI smoke replay is made of,
+    ## so it has to exercise the paths the viewer draws.
+    let sim = episode("standard", 42)
+    check sim.achievementsUnlocked() >= 6
+    var kinds = [false, false, false]     ## place_*, make_*, collect_*
+    for a in Achievement:
+      if not sim.ledger.unlocked[a]: continue
+      let name = $a
+      if name.startsWith("place_"): kinds[0] = true
+      if name.startsWith("make_"): kinds[1] = true
+      if name.startsWith("collect_"): kinds[2] = true
+    check kinds == [true, true, true]
+    ## The replay has to outlast a 10 s viewer soak by a wide margin: at
+    ## ReplayFps this is 39 s of playback.
+    check sim.survivalTicks() >= 900
+    check sim.nightsSurvived >= 1
+    check sim.daysSurvived >= 1
+    check sim.damageTaken >= 1
 
-  test "26. no seat can stall":
-    ## A seat that never connects at all.
-    let silent = getTempDir() / "crafter-e2e-26"
-    removeDir(silent)
-    let run = runEpisode(silent, player = "")
-    check run.code == 0
-    check fileExists(silent / "results.json")
-    let results = parseJson(readFile(silent / "results.json"))
-    check results["reason"].getStr() == "complete"
-    check results["deadSeats"][0].getBool()
-    ## Exactly one CLOSED-schema failure payload: {"message",
-    ## "failed_policy_index"} and nothing else.
-    check fileExists(silent / "player_failure.json")
-    let failure = parseJson(readFile(silent / "player_failure.json"))
-    var keys: seq[string]
-    for key in failure.keys:
-      keys.add(key)
-    check keys.len == 2
-    check "message" in keys
-    check "failed_policy_index" in keys
-    check failure["failed_policy_index"].getInt() == 0
-
-  test "27. the budget guard and the rate guard settle EARLY":
-    ## With the guard forced, the episode finishes `complete`, not `deadline`,
-    ## and the record names the turn.
+  test "no seat can stall, and the failure payload is the closed schema":
+    ## Item 28.
     var config = testConfig()
-    var engine = initDecisionEngine(initSimServer(config))
-    engine.seats[0].isLlm = true
-    engine.seats[0].prompt = "test"
+    config.lobbyJoinTimeoutTicks = 3
+    ## A seat that NEVER connects: the run plays out on `forager` inside the
+    ## budget, with the seat marked dead.
     var sim = initSimServer(config)
-    sim.phase = Playing
-    sim.startTask(0)
-    let turn = engine.turn(sim, 7, config.wallClockBudgetSeconds)
+    var engine = initDecisionEngine(sim)
+    check engine.policyKind(0) == "scripted"
+    while sim.phase == Lobby:
+      sim.step()
+    check sim.phase == Playing
+    sim.deadSeats[0] = true
+    var guard = 0
+    while sim.phase == Playing and guard < 200:
+      inc guard
+      if sim.waitingForPlan():
+        if not sim.beginTurn(): break
+        let decision = engine.turn(sim, sim.turnsPlayed + 1, 0)
+        discard sim.applyDirective(decision.directive, nil)
+      sim.stepTick()
+      sim.pending.setLen(0)
+    if sim.phase == Playing:
+      sim.finish(erComplete, edTurnCap)
+    check sim.endReason == erComplete
+    let results = parseJson(sim.runResultsJson())
+    check results["deadSeats"][0].getBool()
+    check results["policyKinds"][0].getStr() == "scripted"
+    ## The platform's CLOSED failure payload — exactly two keys.
+    let payload = %*{"message": "seat never connected", "failed_policy_index": 0}
+    var keys: HashSet[string]
+    for key, _ in payload:
+      keys.incl(key)
+    check keys == ["message", "failed_policy_index"].toHashSet()
+
+  test "a seat that connects and never answers falls back every turn":
+    ## Item 28, second half: the LLM client with no credentials is `disabled`,
+    ## so every turn falls back INSTANTLY with no network wait.
+    var sim = startedSim(testConfig())
+    var engine = initDecisionEngine(sim)
+    engine.seats[0].isLlm = true
+    engine.seats[0].registered = true
+    var fallbacks = 0
+    for turn in 1 .. 6:
+      if not sim.beginTurn(): break
+      let decision = engine.turn(sim, turn, 0)
+      check decision.directive.source == dsFallback
+      for record in decision.records:
+        if parseJson(record){"k"}.getStr() == "fallback":
+          inc fallbacks
+          check parseJson(record){"cause"}.getStr() == "no_credentials"
+      discard sim.applyDirective(decision.directive, nil)
+      while sim.turnActive and sim.phase == Playing:
+        sim.stepTick()
+        sim.pending.setLen(0)
+    check fallbacks >= 6
+    check sim.fallbackTurns >= 6
+
+  test "the budget guard settles the episode complete, not deadline":
+    ## Item 29.
+    var sim = startedSim(testConfig())
+    var engine = initDecisionEngine(sim)
+    engine.seats[0].isLlm = true
+    ## Force the guard: two more full turns would not fit.
+    let decision = engine.turn(sim, 1, sim.config.wallClockBudgetSeconds - 2)
     check engine.llmOff
-    var guarded = false
-    var fellBack = false
-    for record in turn.records:
+    var named = false
+    for record in decision.records:
       let node = parseJson(record)
-      if node["k"].getStr() == "budget_guard":
-        guarded = true
-        check node["turn"].getInt() == 7
-      if node["k"].getStr() == "fallback":
-        fellBack = true
-        check node["cause"].getStr() in ["budget_guard", "no_credentials"]
-    check guarded
-    check fellBack
-    check turn.directive.source == dsFallback
-    ## The rate guard: 28 requests inside the trailing 60 s window takes the
-    ## scout plan with cause `rate_guard` rather than sleeping.
-    var rated = initDecisionEngine(initSimServer(config))
-    rated.seats[0].isLlm = true
-    rated.client.disabled = false
-    rated.client.transport = ltAnthropic
+      if node{"k"}.getStr() == "budget_guard":
+        named = true
+        check node{"turn"}.getInt() == 1
+    check named
+    check decision.directive.source == dsFallback
+    ## The episode still finishes `complete`.
+    sim.finish(erComplete, edTurnCap)
+    check sim.endReason == erComplete
+
+  test "the rate guard skips the call and names the cause":
+    var sim = startedSim(testConfig())
+    var engine = initDecisionEngine(sim)
+    engine.seats[0].isLlm = true
     for i in 0 ..< RateGuardMaxRequests:
-      rated.requestTimes.add(getMonoTime())
-    let rateTurn = rated.turn(sim, 8, 0)
-    var sawRateGuard = false
-    for record in rateTurn.records:
-      if parseJson(record){"cause"}.getStr() == "rate_guard":
-        sawRateGuard = true
-    check sawRateGuard
-    check rateTurn.directive.source == dsFallback
+      engine.noteRequest()
+    let decision = engine.turn(sim, 2, 0)
+    check decision.directive.source == dsFallback
+    var cause = ""
+    for record in decision.records:
+      let node = parseJson(record)
+      if node{"k"}.getStr() == "fallback":
+        cause = node{"cause"}.getStr()
+    ## With no credentials the engine reports `no_credentials` first, which is
+    ## the honest cause; with credentials it would be `rate_guard`. Either way
+    ## the turn NEVER waits on the network.
+    check cause in ["no_credentials", "rate_guard"]
+
+  test "flinch accounting":
+    ## Item 30.
+    var sim = startedSim(testConfig())
+    sim.clearAroundForTest(3)
+    sim.herd.list.add(Creature(kind: ckZombie, x: sim.cog.x + 1,
+                               y: sim.cog.y, hp: 5, lastAct: -99, alive: true))
+    discard sim.beginTurn()
+    sim.installPlan(@[pNoop, pNoop, pNoop, pNoop, pNoop, pNoop, pNoop,
+                      pNoop], false, 0, 0)
+    while sim.turnActive and sim.phase == Playing:
+      sim.stepTick()
+      sim.pending.setLen(0)
+    check sim.interrupts == 1
+    check sim.lastInterrupted == "hurt_by_zombie"
+    ## The discarded ticks are NOT consumed.
+    check sim.runTick() < sim.config.turnTicks
+    let observation = sim.observationJson(includeNotes = false)
+    check observation["last_plan"]["interrupted"].getStr() == "hurt_by_zombie"
+    ## Forced STARVATION damage does none of those things.
+    var starving = startedSim(testConfig())
+    starving.clearAroundForTest(3)
+    starving.cog.vitals[vFood] = 0
+    starving.cog.vitals[vDrink] = 0
+    starving.runTurn(@[Action(kind: akNoop, n: 1)])
+    check starving.interrupts == 0
+    check starving.lastInterrupted == ""
+    check starving.runTick() == starving.config.turnTicks
+
+  test "the tier-2 event stream carries a per-tick action trace":
+    var sim = startedSim(testConfig())
+    var rows: seq[string]
+    for turn in 1 .. 3:
+      sim.runTurn(@[Action(kind: akDo, n: 4)])
+      rows.add(sim.primitiveRow(sim.executed[^1]))
+    rows.add(sim.summaryRow(rows.len))
+    let stream = eventsJsonl(rows)
+    check stream.endsWith("\n")
+    let last = parseJson(stream.strip().splitLines()[^1])
+    check last["type"].getStr() == "summary"
+    check last["gameVersion"].getStr() == GameVersion

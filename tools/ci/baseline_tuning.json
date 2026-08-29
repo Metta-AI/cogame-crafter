@@ -1,83 +1,24 @@
 {
-  "seeds": 40,
-  "grid": [
-    {
-      "frontierAdjacencyWeight": 1,
-      "spinTurns": 12,
-      "tieBreakByDistance": true,
-      "score": 7123800
-    },
-    {
-      "frontierAdjacencyWeight": 1,
-      "spinTurns": 12,
-      "tieBreakByDistance": false,
-      "score": 15550400
-    },
-    {
-      "frontierAdjacencyWeight": 2,
-      "spinTurns": 12,
-      "tieBreakByDistance": true,
-      "score": 7332980
-    },
-    {
-      "frontierAdjacencyWeight": 2,
-      "spinTurns": 12,
-      "tieBreakByDistance": false,
-      "score": 15550400
-    },
-    {
-      "frontierAdjacencyWeight": 3,
-      "spinTurns": 12,
-      "tieBreakByDistance": true,
-      "score": 7854210
-    },
-    {
-      "frontierAdjacencyWeight": 3,
-      "spinTurns": 12,
-      "tieBreakByDistance": false,
-      "score": 15550400
-    },
-    {
-      "frontierAdjacencyWeight": 4,
-      "spinTurns": 12,
-      "tieBreakByDistance": true,
-      "score": 9517280
-    },
-    {
-      "frontierAdjacencyWeight": 4,
-      "spinTurns": 12,
-      "tieBreakByDistance": false,
-      "score": 15550400
-    },
-    {
-      "frontierAdjacencyWeight": 6,
-      "spinTurns": 12,
-      "tieBreakByDistance": true,
-      "score": 11468560
-    },
-    {
-      "frontierAdjacencyWeight": 6,
-      "spinTurns": 12,
-      "tieBreakByDistance": false,
-      "score": 15550400
-    },
-    {
-      "frontierAdjacencyWeight": 8,
-      "spinTurns": 12,
-      "tieBreakByDistance": true,
-      "score": 12696250
-    },
-    {
-      "frontierAdjacencyWeight": 8,
-      "spinTurns": 12,
-      "tieBreakByDistance": false,
-      "score": 15550400
-    }
-  ],
+  "note": "The grid harness's pick, not a guess. tools/tune_baselines.nim plays BOTH variants over 40 seeds for every cell of the matrix and prints this table; tests/test_crafter_driver.nim asserts the shipped DefaultBaselineParams still equal `pick`. Re-run with `nim c -r --path:src tools/tune_baselines.nim --check`.",
+  "metric": "total achievements unlocked by `forager` over seeds 1..40 of both shipped variants, ties broken by total survival ticks",
   "pick": {
-    "frontierAdjacencyWeight": 1,
-    "spinTurns": 12,
-    "tieBreakByDistance": false,
-    "score": 15550400
-  }
+    "thirstThreshold": 3,
+    "hungerThreshold": 3,
+    "shelterStones": 4,
+    "sleepTicks": 8,
+    "restThreshold": 5,
+    "exploreSteps": 2,
+    "tieBreakByDistance": false
+  },
+  "grid": [
+    {"exploreSteps": 2, "hungerThreshold": 3, "restThreshold": 5, "sleepTicks": 8, "shelterStones": 4, "tieBreakByDistance": false, "achievements": 369, "ticks": 20360},
+    {"exploreSteps": 2, "hungerThreshold": 3, "restThreshold": 6, "sleepTicks": 8, "shelterStones": 4, "tieBreakByDistance": false, "achievements": 357, "ticks": 21160},
+    {"exploreSteps": 2, "hungerThreshold": 4, "restThreshold": 7, "sleepTicks": 8, "shelterStones": 4, "tieBreakByDistance": false, "achievements": 365, "ticks": 21360},
+    {"exploreSteps": 3, "hungerThreshold": 3, "restThreshold": 5, "sleepTicks": 8, "shelterStones": 4, "tieBreakByDistance": false, "achievements": 328, "ticks": 19120},
+    {"exploreSteps": 3, "hungerThreshold": 4, "restThreshold": 7, "sleepTicks": 12, "shelterStones": 4, "tieBreakByDistance": false, "achievements": 365, "ticks": 21280},
+    {"exploreSteps": 4, "hungerThreshold": 3, "restThreshold": 7, "sleepTicks": 12, "shelterStones": 4, "tieBreakByDistance": false, "achievements": 318, "ticks": 16560},
+    {"exploreSteps": 5, "hungerThreshold": 5, "restThreshold": 7, "sleepTicks": 12, "shelterStones": 2, "tieBreakByDistance": false, "achievements": 353, "ticks": 20960},
+    {"exploreSteps": 2, "hungerThreshold": 3, "restThreshold": 5, "sleepTicks": 12, "shelterStones": 2, "tieBreakByDistance": true, "achievements": 186, "ticks": 15800},
+    {"exploreSteps": 2, "hungerThreshold": 4, "restThreshold": 5, "sleepTicks": 16, "shelterStones": 4, "tieBreakByDistance": false, "achievements": 357, "ticks": 20320}
+  ]
 }

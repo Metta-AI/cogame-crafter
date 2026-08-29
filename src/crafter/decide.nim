@@ -125,7 +125,7 @@ proc rateGuardBlocked(engine: var DecisionEngine): bool =
   engine.requestTimes = kept
   engine.requestTimes.len >= RateGuardMaxRequests
 
-proc noteRequest(engine: var DecisionEngine) =
+proc noteRequest*(engine: var DecisionEngine) =
   engine.requestTimes.add(getMonoTime())
 
 proc turn*(engine: var DecisionEngine, sim: var SimServer, turnIndex,
