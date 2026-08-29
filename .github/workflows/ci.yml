@@ -127,11 +127,25 @@ jobs:
         if: github.event_name == 'pull_request'
         run: ./tools/ci/check_gameversion.sh "origin/${{ github.base_ref }}"
 
+      - name: Check out the starter the broadcast page is derived from
+        # The page is DERIVED from coworld-ctf's own `replay_broadcast.html`
+        # plus an enumerated edit list, so the only way to gate the derivation
+        # is to have the starter here. Pinned to the sha the page was derived
+        # from: a starter that moves on must be re-derived deliberately, in a
+        # commit, not silently at the next push.
+        uses: actions/checkout@v5
+        with:
+          repository: Metta-AI/coworld-ctf
+          ref: a7484eb47b14bde20678ff106c684a633b4f294c
+          path: .starter
+
       - name: The broadcast page is the derived page
-        # The starter mount only exists in the coworld-builder sandbox, so
-        # this re-derivation is a no-op in CI; tests/test_crafter_viewer.nim
-        # asserts the committed artifact's structure unconditionally.
-        run: python3 tools/build_broadcast_page.py --check || true
+        # A REAL gate. This used to end in `|| true`, which swallowed every
+        # failure, on a runner that had no starter to compare against — so
+        # nothing anywhere asserted the committed page was still the
+        # derivation, only that it carried the right ids
+        # (tests/test_crafter_viewer.nim).
+        run: python3 tools/build_broadcast_page.py --starter .starter --check
 
       - name: Run tests
         # Every tests/*.nim runs twice: debug (range/overflow checks, stack

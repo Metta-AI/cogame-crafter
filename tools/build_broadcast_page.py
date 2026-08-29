@@ -382,6 +382,11 @@ def main():
 
     starter_path = os.path.join(args.starter, "client", "replay_broadcast.html")
     if not os.path.exists(starter_path):
+        if args.check:
+            raise SystemExit(
+                "::error::--check needs the starter page; %s is not there. CI "
+                "checks the starter out at the pinned sha; locally, point "
+                "--starter at the coworld-ctf mount." % starter_path)
         print("starter page not present at %s; nothing to re-derive"
               % starter_path)
         return 0
