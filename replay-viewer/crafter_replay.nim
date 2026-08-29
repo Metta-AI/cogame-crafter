@@ -74,7 +74,7 @@ proc crafterLoadReplay(data: ptr uint8, length: cint): cint
     viewer = board.initGlobalViewerState()
     runtimeLoaded = true
     ## THE LOAD-TIME PRE-SCAN. Re-simulate the whole episode once headlessly
-    ## (at most 660 ticks over a 169-cell grid — sub-millisecond in wasm) so
+    ## (at most 1344 ticks over a 4096-cell grid — milliseconds in wasm) so
     ## the progress sparkline and the scrubber beats draw at FULL WIDTH on the
     ## first frame instead of growing in.
     stampStage("pre-scan the episode")

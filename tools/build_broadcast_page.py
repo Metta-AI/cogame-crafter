@@ -102,7 +102,7 @@ MARKUP_REMOVALS = [
       </div>
 """, """      <!-- CRAFTER: the un-fogged tactical inset is REMOVED — the main
            board already IS the un-fogged view; this panel now draws the
-           agent's own 7x7 window instead. -->
+           agent's own 9x9 window instead. -->
 """),
 ]
 

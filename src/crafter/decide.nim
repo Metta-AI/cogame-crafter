@@ -1,11 +1,11 @@
 ## The decision layer: the per-turn loop that asks the seat what its cog does
 ## next, and ALWAYS has an answer.
 ##
-## Cadence: one turn every <= `turnTicks` (12) ticks, at most 55 turns per
+## Cadence: one turn every <= `turnTicks` (24) ticks, at most 56 turns per
 ## episode. There is exactly ONE seat, so the starter's
 ## one-parallel-batch-per-turn machinery (`curly.makeRequests`) carries a
 ## batch of one and is otherwise untouched. THE PER-TURN LLM CALL BUDGET IS
-## EXACTLY ONE REQUEST, PLUS AT MOST ONE RETRY — at most 110 provider calls
+## EXACTLY ONE REQUEST, PLUS AT MOST ONE RETRY — at most 112 provider calls
 ## per episode, and never more than one in flight.
 ##
 ## DEGRADE, NEVER HANG. Every wait here is bounded: attempt 1 gets
@@ -110,7 +110,7 @@ proc resultRecord*(sim: SimServer): string =
 # ---------------------------------------------------------------------------
 
 proc foragerFallback*(sim: SimServer): Directive =
-  ## THE fallback plan, computed server-side by the SAME proc the `scout`
+  ## THE fallback plan, computed server-side by the SAME proc the `forager`
   ## baseline uses. `tests/test_crafter_driver.nim` asserts the two resolve
   ## to one proc so they cannot drift.
   result = foragerPlan(sim)
