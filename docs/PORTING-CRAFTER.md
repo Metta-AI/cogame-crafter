@@ -101,8 +101,11 @@ swap.
 ## Divergences from this repo's own design note
 
 The design note is committed verbatim at
-`docs/plans/2026-08-28-crafter-design.md`. Three things in the implementation
-depart from it, and each is here rather than silently in the code.
+`docs/plans/2026-08-28-crafter-design.md`. **Every** place the implementation
+departs from it is a lettered section below, in the order they were found —
+the note's own rule is that a divergence which is not written down is a defect,
+so this list is appended to rather than summarised, and it carries no count to
+fall out of date.
 
 ### A. The playability post-pass has a sixth step: **connectivity**
 
