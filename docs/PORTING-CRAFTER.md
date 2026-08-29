@@ -357,3 +357,19 @@ reaches the replay — is capped at `MaxReplyBytes` **runes** afterwards, on a
 rune boundary. Nothing byte-truncated ever reaches a record: a cut envelope
 raises inside `parseJson`, the caller turns that into a `parse_error` fallback,
 and the rune cap is what the truncation tests pin.
+
+### O. Within one tick, creatures enter the array by KIND, not by `(spawnY, spawnX)`
+
+The note's §Day, night and the creatures has the three kinds in "a single
+stable array ordered by `(spawnTick, spawnY, spawnX)`". The array is single and
+stable, and identical on record and on playback — which is what the hash chain
+needs — but the tiebreak WITHIN a tick is the spawn pass's order, cow then
+zombie then skeleton, and new arrows are appended after the whole pass.
+
+There is at most one spawn attempt per kind per tick, so the difference is only
+ever between two or three creatures born on the same tick, and nothing reads
+the array in a way that makes their relative order observable: `stepCreatures`
+walks it by kind pass regardless, `creatureAt` is a position lookup and
+creatures never share a cell, and the baselines pick by distance. Sorting the
+at-most-three by `(y, x)` would change every recorded `gameHash` — the hash
+mixes the array in order — for no behavioural difference at all.
