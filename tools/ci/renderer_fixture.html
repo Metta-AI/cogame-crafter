@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>crafter renderer fixture</title>
+<style>
+  html, body { margin: 0; background: #14120f; color: #f2e8d8;
+               font: 12px/1.4 system-ui, sans-serif; }
+  #frame { border: 0; display: block; }
+  #tx { display: block; }
+  #note { padding: 6px 10px; }
+</style>
+</head>
+<body>
+<!--
+  THE WORST-CASE RENDERER FIXTURE.
+
+  tools/ci/docker_smoke.sh runs with NO ANTHROPIC_API_KEY, so the seat in the
+  CI replay plays scripted and emits no `say` at all: the smoke replay can
+  never exercise the feed's narration path, the mission ribbon at full cap, or
+  the endcard's failure vocabulary (the cogchemists 2026-08-24 scar). Nothing
+  that merely plays that replay can draw this chrome.
+
+  So this page LOADS THE SHIPPED dist/static-replay-viewer/index.html IN AN
+  IFRAME and shims only the wasm entry's OUTPUT — it does not re-implement the
+  drawing (the particle-worlds 2026-08-26 scar). It drives the real page's own
+  CrafterChrome.frame()/event() entry points with a worst case:
+
+    * a `say` filled to exactly MaxSayRunes (140) with 4-byte emoji,
+    * a mission sentence at full length,
+    * a fully fogged board and all five task-pip states,
+    * an `xland` produce banner and an unlock beat,
+    * a failed-by-lava endcard,
+
+  at several canvas widths INCLUDING 360 px, then transcribes every DOM text
+  run the real page produced onto a canvas at its measured geometry, so
+  `viewer_smoke.mjs --strict-text-bounds` has something to measure (the page's
+  own board pixels are drawn in a Worker on an OffscreenCanvas, where the
+  harness's canvas_text instrumentation sees nothing).
+-->
+<div id="note">crafter renderer fixture — driving the shipped chrome</div>
+<iframe id="frame" width="960" height="540" src="./index.html"></iframe>
+<canvas id="tx" width="960" height="540"></canvas>
+<script>
+(function () {
+  'use strict';
+
+  var WIDTHS = [960, 640, 360];
+  var SAY = (function () {
+    // Exactly 140 runes, with 4-byte emoji sitting on the boundary. The base
+    // sentence is 130 runes, so it is REPEATED before the slice: slicing 138
+    // out of 130 shipped a 132-rune "worst case" that was 8 runes short of the
+    // cap, which is exactly what the full-length assertion below now catches.
+    var base = 'I have the yellow key; opening the door at (6,3) and heading east for the green goal square before the lava column closes the gap ';
+    var runes = Array.from(base);
+    while (runes.length < 138) runes = runes.concat(Array.from(base));
+    return runes.slice(0, 138).join('') + '\uD83E\uDDE9\uD83D\uDD11';
+  })();
+  var MISSION = 'put the red ball next to the blue box, then use the yellow key to open the door and get to the green goal square';
+
+  function pips() {
+    var states = ['solved', 'failed', 'current', 'pending', 'unreached'];
+    var fams = ['lavagap', 'doorkey', 'multiroom', 'keycorridor', 'babyai'];
+    return states.map(function (state, i) {
+      return { i: i, state: state, family: fams[i], mission: MISSION,
+               turns: 11 - i, credits: (i === 0 ? 3 : i % 3) };
+    });
+  }
+
+  function worstState(tick) {
+    var view = ['???????', '??###??', '?#~G~#?', '?#kob#?', '?##L##?',
+                '?......', '...A...'];
+    return {
+      t: tick, mt: 660, mx: 660, st: 0, sp: 1, pl: true, lp: true,
+      sk: false, ff: false, en: true, mm: -1, bs: 1, pov: -1,
+      ph: tick > 600 ? 'gameover' : 'playing',
+      lob: 0, regime: 'gauntlet', game: 1, games: 1, turnTicks: 12,
+      teams: { red: { lives: 12, prog: 3, held: 3, cov: 312180, own: false,
+                      tags: 97, cogs: 1, flag: 'home', carrier: -1 } },
+      roster: [{ s: 0, name: 'crafter-missionfirst', alias: 'Alpha',
+                 team: 'red', policy: 'missionfirst', kind: 'llm',
+                 alive: true, lives: 1, carry: true }],
+      mg: {
+        index: 2, count: 5, family: 'xland', mission: MISSION,
+        turn: 7, cap: 11, solved: 3, score: 312180, credits: 12,
+        seen: 97, cells: 169, dir: 'east', carrying: 'yellow key',
+        fallbacks: 2, deaths: 1, crashes: 1, doors: 4, picked: 3,
+        productions: 2, pips: pips(), view: view
+      },
+      over: tick > 600 ? {
+        winner: 'red', draw: false, timeLimit: false,
+        teams: { red: { lives: 12, prog: 3 } },
+        endRule: 'gauntletComplete', reason: 'complete',
+        game: 1, games: 1, regime: 'gauntlet',
+        solved: 3, of: 5, par: 3, score: 312180
+      } : undefined,
+      beats: [
+        { k: 'taskstart', t: 10, i: 0, of: 5, family: 'lavagap', mission: MISSION, cap: 11 },
+        { k: 'unlock', t: 120, color: 'yellow', key: 'yellow', x: 6, y: 3 },
+        { k: 'produce', t: 240, a: 'red key', b: 'blue ball', out: 'purple box', x: 5, y: 5 },
+        { k: 'solved', t: 300, i: 1, turns: 5, ticks: 41 },
+        { k: 'failed', t: 420, i: 2, why: 'died' },
+        { k: 'fallback', t: 500, i: 30, cause: 'timeout' },
+        { k: 'end', t: 640, solved: 3, of: 5, score: 312180,
+          reason: 'complete', endRule: 'gauntletComplete' }
+      ],
+      events: []
+    };
+  }
+
+  var EVENTS = [
+    { k: 'taskstart', t: 10, i: 0, of: 5, family: 'lavagap', mission: MISSION, cap: 11 },
+    { k: 'plan', t: 12, n: 3, verbs: 'goto toggle forward forward forward',
+      truncated: true, dropped: 2 },
+    { k: 'pickup', t: 20, type: 'key', color: 'yellow', x: 2, y: 9 },
+    { k: 'unlock', t: 22, color: 'yellow', key: 'yellow', x: 6, y: 3 },
+    { k: 'produce', t: 24, a: 'red key', b: 'blue ball', out: 'purple box', x: 5, y: 5 },
+    { k: 'subgoal', t: 26, i: 0, which: 1, label: 'door_open' },
+    { k: 'lava', t: 30, x: 4, y: 4 },
+    { k: 'failed', t: 31, i: 0, why: 'died' },
+    { k: 'fallback', t: 33, i: 4, cause: 'timeout' },
+    { k: 'solved', t: 40, i: 1, turns: 5, ticks: 41 },
+    // The say is driven LAST on purpose: the shipped feed keeps only
+    // MAX_FEED = 4 rows, and the full-length assertion below reads the remark
+    // back out of the row the shipped chrome actually built.
+    { k: 'say', t: 12, text: SAY }
+  ];
+
+  // The fixture's own strings must come out of the shipped chrome UNSHORTENED.
+  // Without this, a game block that quietly trimmed a remark before writing it
+  // into a feed row would transcribe the short string, measure it, and pass —
+  // leaving the fixture green while testing nothing (checklist item 15's last
+  // bullet). Nothing here shrinks a string: it reads the transcribed runs back.
+  function assertFullLength(runs, width) {
+    [['the 140-rune say', SAY], ['the mission sentence', MISSION]]
+      .forEach(function (entry) {
+        var label = entry[0], want = entry[1];
+        var carried = runs.some(function (text) { return text.indexOf(want) >= 0; });
+        if (carried) return;
+        var longest = runs.reduce(
+          function (a, b) { return b.length > a.length ? b : a; }, '');
+        throw new Error(label + ' came out of the shipped chrome shortened at ' +
+          width + 'px: wanted ' + Array.from(want).length +
+          ' runes, longest transcribed run was ' + Array.from(longest).length +
+          ' runes');
+      });
+  }
+
+  function fail(message) {
+    document.documentElement.setAttribute('data-replay-error', message);
+    var note = document.getElementById('note');
+    if (note) note.textContent = 'FIXTURE FAILED: ' + message;
+  }
+
+  // Wrap `text` the way the DOM wraps it inside `width`, so a run the shipped
+  // page lays out over several lines is transcribed as a block instead of as
+  // one impossible line. Single-line runs (white-space: nowrap — every label
+  // and nameplate here) keep the one-line treatment, which is where a string
+  // with nowhere to go still shows up as a draw outside the canvas.
+  function wrapText(ctx, text, width) {
+    var words = text.split(/\s+/);
+    var lines = [];
+    var line = '';
+    for (var i = 0; i < words.length; i++) {
+      if (!words[i]) continue;
+      var next = line ? line + ' ' + words[i] : words[i];
+      if (line && ctx.measureText(next).width > width) {
+        lines.push(line);
+        line = words[i];
+      } else {
+        line = next;
+      }
+    }
+    if (line) lines.push(line);
+    return lines.length ? lines : [text];
+  }
+
+  // Transcribe the real page's DOM text runs onto our canvas at their measured
+  // geometry, so --strict-text-bounds measures the SHIPPED strings.
+  function transcribe(doc, canvas, runs) {
+    var ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    var selectors = ['#mg-ribbon .mg-taskline', '#mg-ribbon .mg-mission',
+                     '#clock-time', '#clock-caption', '#fpv-name', '#fpv-cap',
+                     '#ec-headline', '#ec-how', '#ec-wincond',
+                     '.plate-name', '.mg-carry', '.mg-alias',
+                     '#killfeed .feed-row', '.mg-pip .mg-fam', '#tick-clock'];
+    var drawn = 0;
+    selectors.forEach(function (selector) {
+      var nodes = doc.querySelectorAll(selector);
+      for (var i = 0; i < nodes.length; i++) {
+        var node = nodes[i];
+        var text = (node.textContent || '').trim();
+        if (!text) continue;
+        var box = node.getBoundingClientRect();
+        var style = doc.defaultView.getComputedStyle(node);
+        var size = parseFloat(style.fontSize) || 12;
+        ctx.font = size + 'px ' + (style.fontFamily || 'sans-serif');
+        ctx.fillStyle = '#f2e8d8';
+        ctx.textBaseline = 'top';
+        // Clamp into the canvas the way the shipped layout clamps into the
+        // board: a run that cannot fit is what --strict-text-bounds is for.
+        var x = Math.max(0, Math.min(canvas.width - 4, box.left));
+        var white = String(style.whiteSpace || '');
+        var wraps = white.indexOf('nowrap') < 0 && white.indexOf('pre') !== 0;
+        var lines = wraps
+          ? wrapText(ctx, text, Math.max(24, Math.min(box.width || canvas.width,
+                                                      canvas.width - x)))
+          : [text];
+        var lineHeight = size * 1.3;
+        var block = lineHeight * lines.length;
+        var y = Math.max(0, Math.min(canvas.height - block - 2, box.top));
+        for (var line = 0; line < lines.length; line++) {
+          ctx.fillText(lines[line], x, y + line * lineHeight);
+        }
+        runs.push(text);
+        drawn++;
+      }
+    });
+    return drawn;
+  }
+
+  var frame = document.getElementById('frame');
+  var canvas = document.getElementById('tx');
+  var deadline = Date.now() + 60000;
+
+  function drive() {
+    var win, doc;
+    try {
+      win = frame.contentWindow;
+      doc = frame.contentDocument;
+    } catch (e) {
+      fail('cannot reach the shipped page: ' + e.message);
+      return;
+    }
+    if (!win || !doc || !win.CrafterChrome || !win.MG_CTX) {
+      if (Date.now() > deadline) {
+        fail('the shipped page never exposed CrafterChrome');
+        return;
+      }
+      setTimeout(drive, 200);
+      return;
+    }
+    var total = 0;
+    try {
+      if (Array.from(SAY).length !== 140) {
+        throw new Error('the fixture built a ' + Array.from(SAY).length +
+                        '-rune say; MaxSayRunes is 140');
+      }
+      WIDTHS.forEach(function (width) {
+        frame.width = String(width);
+        frame.height = String(Math.round(width * 0.5625));
+        canvas.width = width;
+        canvas.height = Math.round(width * 0.5625);
+        if (typeof win.dispatchEvent === 'function') {
+          win.dispatchEvent(new win.Event('resize'));
+        }
+        // The shipped page publishes its own chrome context as MG_CTX, so
+        // this fixture drives the REAL chrome through the REAL context.
+        var ctx = win.MG_CTX;
+        if (!ctx) throw new Error('the shipped page published no chrome context');
+        [400, 640].forEach(function (tick) {
+          var state = worstState(tick);
+          EVENTS.forEach(function (event) {
+            try { win.CrafterChrome.event(event, state, ctx); }
+            catch (e) { throw new Error('event ' + event.k + ': ' + e.message); }
+          });
+          try { win.CrafterChrome.frame(state, ctx, false); }
+          catch (e) { throw new Error('frame: ' + e.message); }
+        });
+        // The 7x7 agent-view inset is a REQUIRED spectator readout, and the
+        // inherited renderFpv() reveals #fpv only for a paintball POV seat —
+        // a key this fork never sends, which left the panel computed every
+        // frame and never displayed (review r1, N1). Probe the SHIPPED page's
+        // computed style, at every width, so a regression back to
+        // display:none is red here instead of invisible.
+        var fpv = doc.getElementById('fpv');
+        if (!fpv) throw new Error('the shipped page has no #fpv panel');
+        if (win.getComputedStyle(fpv).display === 'none') {
+          throw new Error('#fpv (the agent view 7x7 inset) is display:none at ' +
+                          width + 'px after a frame that carries a view');
+        }
+        var runs = [];
+        total += transcribe(doc, canvas, runs);
+        assertFullLength(runs, width);
+      });
+    } catch (e) {
+      fail(e.message);
+      return;
+    }
+    if (total === 0) {
+      fail('the shipped chrome produced no text to measure');
+      return;
+    }
+    document.getElementById('note').textContent =
+      'crafter renderer fixture — ' + total + ' shipped text runs measured at ' +
+      WIDTHS.join('/') + ' px';
+    document.documentElement.setAttribute('data-replay-loaded', 'true');
+  }
+
+  frame.addEventListener('load', function () { setTimeout(drive, 400); });
+  setTimeout(drive, 1500);
+})();
+</script>
+</body>
+</html>

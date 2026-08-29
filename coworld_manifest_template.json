@@ -1,0 +1,774 @@
+{
+  "$schema": "https://softmax.com/schemas/coworld-manifest.json",
+  "tags": [
+    "survival",
+    "single-agent",
+    "crafting",
+    "tech-tree",
+    "open-ended",
+    "crafter"
+  ],
+  "episode_timeout_minutes": 20,
+  "game": {
+    "name": "crafter",
+    "owner": "daveey@softmax.com",
+    "description": "One cog alone in a 64x64 procedurally generated wilderness it can see nine cells of. Chop wood, place a crafting table, make a pickaxe, mine stone, build a furnace, smelt iron and cut a diamond out of the mountain - while keeping health, food, drink and energy off zero and surviving the zombies that come out at night. The score is how many of Crafter's 22 achievements it unlocks before it dies. A policy is just a prompt.",
+    "replay_viewer": {
+      "bundle": "static-replay-viewer"
+    },
+    "runnable": {
+      "type": "game",
+      "image": "{{CRAFTER_IMAGE}}",
+      "run": [
+        "/bin/crafter"
+      ],
+      "env": {
+        "ANTHROPIC_API_KEY_URI": "secret://coworld/crafter/anthropic_api_key"
+      }
+    },
+    "protocols": {
+      "player": {
+        "type": "uri",
+        "value": "https://github.com/Metta-AI/cogame-crafter/blob/main/docs/PROTOCOL.md"
+      },
+      "global": {
+        "type": "uri",
+        "value": "https://github.com/Metta-AI/cogame-crafter/blob/main/docs/PROTOCOL.md"
+      }
+    },
+    "docs": {
+      "readme": {
+        "type": "uri",
+        "value": "https://github.com/Metta-AI/cogame-crafter/blob/main/README.md"
+      },
+      "pages": [
+        {
+          "id": "rules.md",
+          "title": "Rules",
+          "content": {
+            "type": "uri",
+            "value": "https://github.com/Metta-AI/cogame-crafter/blob/main/docs/RULES.md"
+          }
+        },
+        {
+          "id": "actions.md",
+          "title": "Actions and the reply format",
+          "content": {
+            "type": "uri",
+            "value": "https://github.com/Metta-AI/cogame-crafter/blob/main/docs/ACTIONS.md"
+          }
+        },
+        {
+          "id": "achievements.md",
+          "title": "The 22 achievements",
+          "content": {
+            "type": "uri",
+            "value": "https://github.com/Metta-AI/cogame-crafter/blob/main/docs/ACHIEVEMENTS.md"
+          }
+        },
+        {
+          "id": "porting.md",
+          "title": "What this is and is not a port of",
+          "content": {
+            "type": "uri",
+            "value": "https://github.com/Metta-AI/cogame-crafter/blob/main/docs/PORTING-CRAFTER.md"
+          }
+        }
+      ]
+    },
+    "config_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tokens",
+        "players"
+      ],
+      "properties": {
+        "tokens": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "maxItems": 1,
+          "description": "Per-seat auth tokens, INJECTED BY THE RUNNER. Never present in a shipped game_config."
+        },
+        "players": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "The one seat's in-game alias."
+        },
+        "slots": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 0,
+          "maxItems": 1,
+          "description": "Optional explicit slot list."
+        },
+        "seed": {
+          "type": "integer",
+          "description": "Episode seed. Randomised by the runner when 0.",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "num_agents": {
+          "type": "integer",
+          "description": "Seats. Fixed at 1: Crafter is a single-agent benchmark.",
+          "minimum": 1,
+          "maximum": 1,
+          "default": 1
+        },
+        "minPlayers": {
+          "type": "integer",
+          "description": "Seats that must register before the run starts.",
+          "minimum": 1,
+          "maximum": 1,
+          "default": 1
+        },
+        "worldSize": {
+          "type": "integer",
+          "description": "Cells across the square world.",
+          "minimum": 64,
+          "maximum": 64,
+          "default": 64
+        },
+        "viewSize": {
+          "type": "integer",
+          "description": "The egocentric window, world-oriented.",
+          "minimum": 9,
+          "maximum": 9,
+          "default": 9
+        },
+        "regionSize": {
+          "type": "integer",
+          "description": "The known map downsampled 4x4.",
+          "minimum": 16,
+          "maximum": 16,
+          "default": 16
+        },
+        "turnTicks": {
+          "type": "integer",
+          "description": "Ticks in one command turn.",
+          "minimum": 1,
+          "maximum": 64,
+          "default": 24
+        },
+        "maxTurns": {
+          "type": "integer",
+          "description": "Command turns in an episode.",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 56
+        },
+        "maxTicks": {
+          "type": "integer",
+          "description": "Ticks in an episode; must equal maxTurns * turnTicks.",
+          "minimum": 1,
+          "maximum": 4096,
+          "default": 1344
+        },
+        "dayLength": {
+          "type": "integer",
+          "description": "Ticks in one day/night cycle.",
+          "minimum": 8,
+          "maximum": 1024,
+          "default": 192
+        },
+        "dayFraction": {
+          "type": "integer",
+          "description": "Ticks of daylight in each cycle; must be < dayLength.",
+          "minimum": 1,
+          "maximum": 1023,
+          "default": 128
+        },
+        "mountainThreshold": {
+          "type": "integer",
+          "description": "Mountain noise threshold; lower pushes ore to the surface.",
+          "minimum": 400,
+          "maximum": 900,
+          "default": 700
+        },
+        "maxCows": {
+          "type": "integer",
+          "description": "Live cow cap.",
+          "minimum": 0,
+          "maximum": 32,
+          "default": 12
+        },
+        "maxZombies": {
+          "type": "integer",
+          "description": "Live zombie cap.",
+          "minimum": 0,
+          "maximum": 32,
+          "default": 8
+        },
+        "maxSkeletons": {
+          "type": "integer",
+          "description": "Live skeleton cap.",
+          "minimum": 0,
+          "maximum": 32,
+          "default": 6
+        },
+        "foodTicks": {
+          "type": "integer",
+          "description": "Ticks between food drains.",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 40
+        },
+        "drinkTicks": {
+          "type": "integer",
+          "description": "Ticks between drink drains.",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 30
+        },
+        "energyTicks": {
+          "type": "integer",
+          "description": "Ticks between energy drains while awake.",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 50
+        },
+        "regenTicks": {
+          "type": "integer",
+          "description": "Ticks between health regenerations.",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 25
+        },
+        "starveTicks": {
+          "type": "integer",
+          "description": "Ticks between starvation hits per zeroed vital.",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 10
+        },
+        "plantRipenTicks": {
+          "type": "integer",
+          "description": "Ticks a sapling takes to ripen.",
+          "minimum": 1,
+          "maximum": 2000,
+          "default": 120
+        },
+        "parAchievements": {
+          "type": "integer",
+          "description": "The bar results.win is measured against.",
+          "minimum": 0,
+          "maximum": 22,
+          "default": 8
+        },
+        "maxActionsPerTurn": {
+          "type": "integer",
+          "description": "Reply entries honoured per turn.",
+          "minimum": 1,
+          "maximum": 64,
+          "default": 12
+        },
+        "macroPrimitiveCap": {
+          "type": "integer",
+          "description": "Primitives one macro may expand to.",
+          "minimum": 1,
+          "maximum": 64,
+          "default": 24
+        },
+        "attempt1Ms": {
+          "type": "integer",
+          "description": "Attempt-1 LLM deadline, a whole number of seconds.",
+          "minimum": 1000,
+          "maximum": 60000,
+          "default": 6000
+        },
+        "retryMs": {
+          "type": "integer",
+          "description": "The single retry's deadline, a whole number of seconds.",
+          "minimum": 1000,
+          "maximum": 60000,
+          "default": 3000
+        },
+        "turnBudgetMs": {
+          "type": "integer",
+          "description": "Monotonic deadline around the whole turn.",
+          "minimum": 1000,
+          "maximum": 120000,
+          "default": 9500
+        },
+        "turnSpacingMs": {
+          "type": "integer",
+          "description": "Floor on wall clock between request starts.",
+          "minimum": 0,
+          "maximum": 60000,
+          "default": 2600
+        },
+        "wallClockBudgetSeconds": {
+          "type": "integer",
+          "description": "Engine hard stop; <= 660 in every shipped variant.",
+          "minimum": 1,
+          "maximum": 660,
+          "default": 660
+        },
+        "lobbyJoinTimeoutTicks": {
+          "type": "integer",
+          "description": "Ticks the lobby waits for the seat.",
+          "minimum": 1,
+          "maximum": 100000,
+          "default": 2400
+        },
+        "gameOverTicks": {
+          "type": "integer",
+          "description": "Shutdown grace, in ticks, after artifacts are written.",
+          "minimum": 1,
+          "maximum": 100000,
+          "default": 480
+        },
+        "fastMode": {
+          "type": "boolean",
+          "description": "Run the tick loop as fast as the sim allows.",
+          "default": true
+        },
+        "showPlayerLabels": {
+          "type": "boolean",
+          "description": "Never true: nothing drawn on the board may leak an identity.",
+          "default": false
+        },
+        "model": {
+          "type": "string",
+          "description": "Optional Anthropic model override."
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "description": "Reply token cap; 900, never 400.",
+          "minimum": 1,
+          "maximum": 8192,
+          "default": 900
+        }
+      }
+    },
+    "results_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "names",
+        "scores",
+        "reason"
+      ],
+      "properties": {
+        "names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "maxItems": 1,
+          "description": "The seat's REAL policy name, spectator-side only."
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "maxItems": 1,
+          "description": "The in-game alias the model sees: Alpha."
+        },
+        "scores": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 1,
+          "maxItems": 1,
+          "description": "10000 * achievementsUnlocked + survivalTicks."
+        },
+        "win": {
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "minItems": 1,
+          "maxItems": 1,
+          "description": "achievementsUnlocked >= parAchievements."
+        },
+        "winner": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "0 when win[0], null otherwise."
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "deadline",
+            "fault"
+          ]
+        },
+        "endRule": {
+          "type": "string",
+          "enum": [
+            "death",
+            "allUnlocked",
+            "turnCap",
+            "tickCap",
+            "wallClock",
+            "fault"
+          ]
+        },
+        "variant": {
+          "type": "string"
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "achievementIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 22,
+          "maxItems": 22,
+          "description": "The canonical Crafter list, in the canonical order."
+        },
+        "achievementUnlocked": {
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "minItems": 22,
+          "maxItems": 22,
+          "description": "Booleans in the canonical order."
+        },
+        "achievementTick": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 22,
+          "maxItems": 22,
+          "description": "The tick each unlocked, or -1."
+        },
+        "achievementsUnlocked": {
+          "type": "integer"
+        },
+        "achievementsOf": {
+          "type": "integer"
+        },
+        "parAchievements": {
+          "type": "integer"
+        },
+        "survivalTicks": {
+          "type": "integer"
+        },
+        "daysSurvived": {
+          "type": "integer"
+        },
+        "nightsSurvived": {
+          "type": "integer"
+        },
+        "deathCause": {
+          "type": "string",
+          "enum": [
+            "zombie",
+            "skeleton",
+            "arrow",
+            "lava",
+            "starvation",
+            "thirst",
+            "exhaustion",
+            "none"
+          ]
+        },
+        "finalHealth": {
+          "type": "integer"
+        },
+        "finalFood": {
+          "type": "integer"
+        },
+        "finalDrink": {
+          "type": "integer"
+        },
+        "finalEnergy": {
+          "type": "integer"
+        },
+        "invWood": {
+          "type": "integer"
+        },
+        "invStone": {
+          "type": "integer"
+        },
+        "invCoal": {
+          "type": "integer"
+        },
+        "invIron": {
+          "type": "integer"
+        },
+        "invDiamond": {
+          "type": "integer"
+        },
+        "invSapling": {
+          "type": "integer"
+        },
+        "toolsOwned": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 0,
+          "maxItems": 6,
+          "description": "A subset of the six tool names, in canonical order."
+        },
+        "cellsSeen": {
+          "type": "integer"
+        },
+        "cellsTotal": {
+          "type": "integer"
+        },
+        "damageTaken": {
+          "type": "integer"
+        },
+        "damageDealt": {
+          "type": "integer"
+        },
+        "zombiesKilled": {
+          "type": "integer"
+        },
+        "skeletonsKilled": {
+          "type": "integer"
+        },
+        "cowsEaten": {
+          "type": "integer"
+        },
+        "blocksMined": {
+          "type": "integer"
+        },
+        "blocksPlaced": {
+          "type": "integer"
+        },
+        "itemsCrafted": {
+          "type": "integer"
+        },
+        "ticksAsleep": {
+          "type": "integer"
+        },
+        "interrupts": {
+          "type": "integer"
+        },
+        "primitivesExecuted": {
+          "type": "integer"
+        },
+        "actionsDropped": {
+          "type": "integer"
+        },
+        "macrosUnreachable": {
+          "type": "integer"
+        },
+        "repliesRepaired": {
+          "type": "integer"
+        },
+        "finalTick": {
+          "type": "integer"
+        },
+        "turnsPlayed": {
+          "type": "integer"
+        },
+        "llmTurns": {
+          "type": "integer"
+        },
+        "fallbackTurns": {
+          "type": "integer"
+        },
+        "policyKinds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "maxItems": 1,
+          "description": "llm | scripted, per seat."
+        },
+        "deadSeats": {
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "minItems": 1,
+          "maxItems": 1,
+          "description": "Whether the seat's socket died."
+        },
+        "stopDetail": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "player": [
+    {
+      "id": "forager",
+      "type": "player",
+      "name": "forager",
+      "description": "The published scripted baseline: a deterministic priority ladder that drinks, eats, shelters at night and climbs the tech tree. It is also the server-side fallback whenever a seat's LLM call fails twice, so every turn always has a legal plan.",
+      "image": "{{CRAFTER_IMAGE}}",
+      "run": [
+        "/bin/crafter-player"
+      ],
+      "source_url": "https://github.com/Metta-AI/cogame-crafter",
+      "env": {
+        "PLAYER_SCRIPTED": "forager",
+        "PLAYER_POLICY_LABEL": "forager"
+      },
+      "resources": {
+        "requests": {
+          "cpu": "100m",
+          "memory": "64Mi"
+        },
+        "limits": {
+          "cpu": "1"
+        }
+      }
+    }
+  ],
+  "variants": [
+    {
+      "id": "standard",
+      "name": "Standard world (1 cog, 22 achievements)",
+      "description": "One cog alone in a procedurally generated 64x64 wilderness it can see nine cells of. Chop wood, place a table, make a pickaxe, mine stone, build a furnace, smelt iron, and cut a diamond out of the mountain - while keeping health, food, drink and energy off zero and staying alive through seven nights of zombies. Score is how many of Crafter's 22 achievements it unlocks before it dies.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Alpha"
+          }
+        ],
+        "num_agents": 1,
+        "minPlayers": 1,
+        "worldSize": 64,
+        "viewSize": 9,
+        "regionSize": 16,
+        "turnTicks": 24,
+        "maxTurns": 56,
+        "maxTicks": 1344,
+        "maxSkeletons": 6,
+        "foodTicks": 40,
+        "drinkTicks": 30,
+        "energyTicks": 50,
+        "regenTicks": 25,
+        "starveTicks": 10,
+        "plantRipenTicks": 120,
+        "maxActionsPerTurn": 12,
+        "macroPrimitiveCap": 24,
+        "dayLength": 192,
+        "dayFraction": 128,
+        "mountainThreshold": 700,
+        "maxCows": 12,
+        "maxZombies": 8,
+        "parAchievements": 8,
+        "attempt1Ms": 6000,
+        "retryMs": 3000,
+        "turnBudgetMs": 9500,
+        "turnSpacingMs": 2600,
+        "wallClockBudgetSeconds": 660,
+        "lobbyJoinTimeoutTicks": 2400,
+        "fastMode": true,
+        "showPlayerLabels": false
+      }
+    },
+    {
+      "id": "longnight",
+      "name": "Long night (1 cog, half the episode in the dark)",
+      "description": "The same world and the same 22 achievements, but the sun is up only half the time and there are half again as many zombies. Ore sits closer to the surface so the tech tree is still reachable in the dark - the question is whether a cog can climb it while something is hunting it. Score is how many achievements it unlocks before it dies.",
+      "game_config": {
+        "players": [
+          {
+            "name": "Alpha"
+          }
+        ],
+        "num_agents": 1,
+        "minPlayers": 1,
+        "worldSize": 64,
+        "viewSize": 9,
+        "regionSize": 16,
+        "turnTicks": 24,
+        "maxTurns": 56,
+        "maxTicks": 1344,
+        "maxSkeletons": 6,
+        "foodTicks": 40,
+        "drinkTicks": 30,
+        "energyTicks": 50,
+        "regenTicks": 25,
+        "starveTicks": 10,
+        "plantRipenTicks": 120,
+        "maxActionsPerTurn": 12,
+        "macroPrimitiveCap": 24,
+        "dayLength": 160,
+        "dayFraction": 80,
+        "mountainThreshold": 660,
+        "maxCows": 8,
+        "maxZombies": 12,
+        "parAchievements": 6,
+        "attempt1Ms": 6000,
+        "retryMs": 3000,
+        "turnBudgetMs": 9500,
+        "turnSpacingMs": 2600,
+        "wallClockBudgetSeconds": 660,
+        "lobbyJoinTimeoutTicks": 2400,
+        "fastMode": true,
+        "showPlayerLabels": false
+      }
+    }
+  ],
+  "certification": {
+    "players": [
+      {
+        "player_id": "forager"
+      }
+    ],
+    "game_config": {
+      "players": [
+        {
+          "name": "Alpha"
+        }
+      ],
+      "num_agents": 1,
+      "minPlayers": 1,
+      "worldSize": 64,
+      "viewSize": 9,
+      "regionSize": 16,
+      "turnTicks": 24,
+      "maxTurns": 56,
+      "maxTicks": 1344,
+      "maxSkeletons": 6,
+      "foodTicks": 40,
+      "drinkTicks": 30,
+      "energyTicks": 50,
+      "regenTicks": 25,
+      "starveTicks": 10,
+      "plantRipenTicks": 120,
+      "maxActionsPerTurn": 12,
+      "macroPrimitiveCap": 24,
+      "dayLength": 192,
+      "dayFraction": 128,
+      "mountainThreshold": 700,
+      "maxCows": 12,
+      "maxZombies": 8,
+      "parAchievements": 8,
+      "wallClockBudgetSeconds": 240,
+      "lobbyJoinTimeoutTicks": 600,
+      "gameOverTicks": 240,
+      "fastMode": true,
+      "showPlayerLabels": false,
+      "seed": 42
+    }
+  }
+}
