@@ -58,3 +58,10 @@ standard]` to `recipes.external.coworld_metta_rl.train` or
 `longnight` for the second certified variant, set `players=1`, and use a
 finite timestep limit. The bridge embeds no hidden seed or score in its
 observation. Its full teacher and random games complete for both variants.
+Metta RL completed 512 steps per variant and evaluation; mean returns were
+-0.952 for standard and -0.906 for longnight. Native PufferLib completed
+4,096 CUDA steps per variant, then evaluated four episodes on each of seeds
+101 and 102. Standard mean scores were 115,432.5 and 100,419.5; longnight
+mean scores were 165.5 and 290.75. These pilots prove the optimizer,
+checkpoint, and evaluator paths; the short runs do not establish policy
+quality.
