@@ -234,6 +234,11 @@ jobs:
           done
           exit "${fail}"
 
+      - name: Run numeric training bridge games
+        run: |
+          nim c -d:release --path:src -o:/tmp/crafter-train-bridge tools/train_bridge.nim
+          python3 tools/test_train_bridge.py /tmp/crafter-train-bridge
+
   # ---------------------------------------------------------------------
   # Packaging smoke: the production image builds, and one real episode runs
   # end to end in raw docker with the certification fixture's seat mix.

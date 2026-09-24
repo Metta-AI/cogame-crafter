@@ -35,3 +35,26 @@ The local 10-game standard proof exported 239 train and 60 validation rows.
 The long-night proof exported 122 train and 38 validation rows. All 459 rows
 fit a 4096-token smoke model. One CPU optimizer update reduced validation
 loss from 1.7651 to 1.7587 on standard and from 1.7569 to 1.7507 on long night.
+
+# Numeric training
+
+The numeric bridge runs the same simulator, baseline policies, reply parser,
+and per-turn driver used in hosted games. Each decision exposes the exact
+player-visible observation as `semantic_view` and a fixed 437-feature numeric
+encoding. Its 33 choices are the published forager and wanderer baselines,
+17 direct primitives, four four-step moves, and `goto` for each of the ten
+nearest known terrain categories. Missing `goto` targets are masked. The
+catalog does not enumerate every possible multi-action plan.
+
+```sh
+nim c -d:release --path:src -o:/tmp/crafter-train-bridge tools/train_bridge.nim
+python3 tools/test_train_bridge.py /tmp/crafter-train-bridge
+```
+
+With a Metta checkout containing the generic Coworld bridge, pass
+`[/tmp/crafter-train-bridge, /absolute/path/coworld_manifest_template.json,
+standard]` to `recipes.external.coworld_metta_rl.train` or
+`recipes.external.coworld.train` for native PufferLib. Replace `standard` with
+`longnight` for the second certified variant, set `players=1`, and use a
+finite timestep limit. The bridge embeds no hidden seed or score in its
+observation. Its full teacher and random games complete for both variants.
