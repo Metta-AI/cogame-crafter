@@ -112,13 +112,13 @@ suite "the manifest pins":
       check player["source_url"].getStr().startsWith(
         "https://github.com/Metta-AI/cogame-crafter")
 
-  test "game.name equals the slug and the secret namespace":
+  test "hosted inference needs no provider secret":
     ## The commons-family 2026-08-24 scar: an underscore in `game.name` and
     ## the upload is rejected after a fully green certify.
     let name = m["game"]["name"].getStr()
     check name == "crafter"
-    check m["game"]["runnable"]["env"]["ANTHROPIC_API_KEY_URI"].getStr() ==
-      "secret://coworld/" & name & "/anthropic_api_key"
+    doAssert m{"game"}{"runnable"}{"env"}{"ANTHROPIC_API_KEY_URI"}.isNil,
+      "hosted LLM uses the platform sidecar without provider secrets"
     ## The compose service name is where the image placeholder comes from
     ## (lantern 0.1.0).
     let compose = readRepo("compose.yaml")
