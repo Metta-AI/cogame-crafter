@@ -208,7 +208,7 @@ proc turn*(engine: var DecisionEngine, sim: var SimServer, turnIndex,
         "JSON object described above, starting with '{', with an " &
         "\"actions\" array.")
     let request = engine.client.requestFor(
-      SystemPrompt, userMessage(engine.seats[seat].prompt, user))
+      SystemPrompt, userMessage(engine.seats[seat].prompt, user), seat)
     ## ONE seat, so this is a batch of ONE through the starter's unchanged
     ## batching path. Never a sequential per-cog loop.
     var batch: RequestBatch
