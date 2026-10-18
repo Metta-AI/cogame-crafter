@@ -2,7 +2,7 @@
 ## the six results identities of §Server.
 
 import std/[json, sets, strutils, unittest]
-import crafter/[sim, driver, directives, baselines, decide, events]
+import crafter/[sim, driver, directives, baselines, decide, events, prompts]
 import helpers
 
 proc episode(variant = "standard", seed = 42): SimServer =
@@ -125,7 +125,7 @@ suite "an episode end to end":
     ## A seat that NEVER connects: the run plays out on `forager` inside the
     ## budget, with the seat marked dead.
     var sim = initSimServer(config)
-    var engine = initDecisionEngine(sim)
+    var engine = initDecisionEngine(sim, PromptSelection())
     check engine.policyKind(0) == "scripted"
     while sim.phase == Lobby:
       sim.step()
@@ -157,7 +157,7 @@ suite "an episode end to end":
     ## Item 28, second half: the LLM client with no credentials is `disabled`,
     ## so every turn falls back INSTANTLY with no network wait.
     var sim = startedSim(testConfig())
-    var engine = initDecisionEngine(sim)
+    var engine = initDecisionEngine(sim, PromptSelection())
     engine.seats[0].isLlm = true
     engine.seats[0].registered = true
     var fallbacks = 0
@@ -179,7 +179,7 @@ suite "an episode end to end":
   test "the budget guard settles the episode complete, not deadline":
     ## Item 29.
     var sim = startedSim(testConfig())
-    var engine = initDecisionEngine(sim)
+    var engine = initDecisionEngine(sim, PromptSelection())
     engine.seats[0].isLlm = true
     ## Force the guard: two more full turns would not fit.
     let decision = engine.turn(sim, 1, sim.config.wallClockBudgetSeconds - 2)
@@ -198,7 +198,7 @@ suite "an episode end to end":
 
   test "the rate guard skips the call and names the cause":
     var sim = startedSim(testConfig())
-    var engine = initDecisionEngine(sim)
+    var engine = initDecisionEngine(sim, PromptSelection())
     engine.seats[0].isLlm = true
     for i in 0 ..< RateGuardMaxRequests:
       engine.noteRequest()

@@ -239,6 +239,17 @@ jobs:
           nim c -d:release --path:src -o:/tmp/crafter-train-bridge tools/train_bridge.nim
           python3 tools/test_train_bridge.py /tmp/crafter-train-bridge
 
+      - name: Complete private source candidates
+        run: |
+          nim c -d:release --path:src -o:/tmp/crafter-export tools/export_posttrain.nim
+          python3 tools/test_export_posttrain.py /tmp/crafter-export
+
+      - name: Published native prompt episodes
+        run: |
+          nim c -d:release --path:src -o:/tmp/crafter-game src/crafter.nim
+          nim c -d:release --path:src -o:/tmp/crafter-player src/crafter_player.nim
+          python3 tools/test_native_prompts.py /tmp/crafter-game /tmp/crafter-player /tmp/crafter-native --smoke
+
   # ---------------------------------------------------------------------
   # Packaging smoke: the production image builds, and one real episode runs
   # end to end in raw docker with the certification fixture's seat mix.

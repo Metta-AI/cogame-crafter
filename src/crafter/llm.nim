@@ -23,7 +23,7 @@ import
   std/[json, os, strutils],
   bitworld/runtime,
   curly,
-  sim_types, sim_config
+  sim_types, sim_config, prompts
 
 const
   AnthropicUrl = "https://api.anthropic.com/v1/messages"
@@ -229,13 +229,12 @@ proc textOf*(
     raise newException(LlmError, "reply cut off at max_tokens before any " &
       "JSON: " & result.truncateRunes(160).replace("\n", " "))
 
-const SystemPrompt* = """
-You are one cog alone in a 64x64 wilderness. You can see a 9x9 square around
+const CanonicalIntroduction = """You are one cog alone in a 64x64 wilderness. You can see a 9x9 square around
 yourself and nothing else. You are hungry, thirsty and tired, and monsters come
 out at night. There are 22 things you have never done, and the ONLY thing that
-is scored is how many of them you do before you die.
+is scored is how many of them you do before you die."""
 
-WHAT YOU GET EACH TURN
+const Rules = """WHAT YOU GET EACH TURN
 - "view": 9 rows of 9 characters, the world around you, NORTH UP. You are the @
   in the middle. Row 0 is north, the last row is south.
 - "region": the whole 64x64 world you have explored, squashed 4x4 into 16x16.
@@ -299,6 +298,18 @@ Reply with ONE JSON object and NOTHING else. Your reply MUST begin with the
 character { and end with }. No prose, no markdown, no code fences.
 {"actions":[{"act":"goto","x":35,"y":25},{"act":"do","n":4}],"say":"<=160 chars","notes":"<=400 chars"}
 """
+
+proc systemPrompt*(selection: PromptSelection): string =
+  let introduction = case selection.selectedVariant
+    of pvCanonical: CanonicalIntroduction
+    of pvPlain: "You are a lone cog in a 64x64 wilderness, with a view limited to a 9x9 square around you. Hunger, thirst and fatigue threaten you, and monsters appear at night. Complete as many of the 22 achievements as possible before dying; survival time breaks ties."
+    of pvNumbered: "1. You are one cog alone in a 64x64 wilderness.\n2. Your current view covers only the surrounding 9x9 square.\n3. You are hungry, thirsty and tired; monsters come out at night.\n4. Complete the 22 achievements before you die. Achievement count determines your score, with survival as the tie-break."
+    of pvQuestions: "Where are you? Alone as a cog in a 64x64 wilderness. What can you see? Only a 9x9 square around yourself. What threatens you? Hunger, thirst, fatigue and monsters at night. What is your objective? Complete as many of the 22 achievements as you can before death; survival breaks ties."
+    of pvReordered: "Complete as many of the 22 achievements as possible before you die; surviving longer is the tie-break. You are hungry, thirsty and tired, with monsters coming out at night. As the only cog in a 64x64 wilderness, you can see just the 9x9 square around yourself."
+    of pvHeldoutBriefing: "Your assignment is to control a solitary cog in a 64x64 wilderness. Your sight reaches the surrounding 9x9 square only. Manage hunger, thirst and fatigue while facing monsters at night. Pursue the 22 achievements before death: their count ranks your run, and survival time resolves ties."
+    of pvHeldoutReference: "Setting: 64x64 wilderness; one cog, alone. Visibility: the surrounding 9x9 square only. Conditions: hunger, thirst, fatigue and nocturnal monsters. Objective: the greatest number of the 22 achievements before death, using survival time as the tie-break."
+    of pvMixed: raise newException(ValueError, "mixed selection must resolve to a training wording")
+  introduction & "\n\n" & Rules
 
 proc operatorBlock*(prompt: string): string =
   ## The seat's own PLAYER_PROMPT, under a heading that tells the model how
