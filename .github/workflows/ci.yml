@@ -243,27 +243,8 @@ jobs:
         run: |
           nim c -d:release --path:src -o:/tmp/crafter-export tools/export_posttrain.nim
           python3 tools/test_export_posttrain.py /tmp/crafter-export
+          python3 tools/test_prompt_games.py /tmp/crafter-train-bridge
 
-      - name: Published native prompt episodes
-        run: |
-          nim c -d:release --path:src -o:/tmp/crafter-game src/crafter.nim
-          nim c -d:release --path:src -o:/tmp/crafter-player src/crafter_player.nim
-          python3 tools/test_native_prompts.py /tmp/crafter-game /tmp/crafter-player /tmp/crafter-native --smoke
-
-  # ---------------------------------------------------------------------
-  # Packaging smoke: the production image builds, and one real episode runs
-  # end to end in raw docker with the certification fixture's seat mix.
-  # ---------------------------------------------------------------------
-  docker-smoke:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v5
-      - uses: docker/setup-buildx-action@v3
-
-      # Invoked by path, not through `bash`: a `bash SCRIPT` call ignores the exec
-      # bit, so a 0644 helper would go green here and only fail wherever it is
-      # executed directly.
       - name: Assert the smoke script is present and executable
         run: |
           set -euo pipefail

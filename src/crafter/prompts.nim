@@ -17,7 +17,7 @@ type
     seed*: int
 
 const
-  PromptBankVersion* = "crafter-rules-v1"
+  PromptBankVersion* = "crafter-rules-v2"
 
 proc promptSelection*(node: JsonNode): PromptSelection =
   if node.kind != JObject:

@@ -1,13 +1,14 @@
-# Prompt diversity and candidate data
+# Prompt diversity and teacher data
 
 Set `promptVariant` to `canonical`, `plain`, `numbered`, `questions`, or
 `reordered`. `mixed` selects one of those five using explicit nonnegative
 `promptSeed % 5`. Selection remains fixed throughout the episode and does not
 consume simulation randomness. `heldout-briefing` and `heldout-reference` are
 reserved for evaluation. The canonical prompt retains the original bytes;
-all wordings share the original rules, action examples, and strategic hints.
+Alternatives vary the introduction, planning instructions, and scoring explanation.
+Observation fields, crafting rules, action examples, and strategic hints retain their meaning.
 
-The bridge and source exporter use `crafter-rules-v1` and record hashes of the
+The bridge and source exporter use `crafter-rules-v2` and record hashes of the
 rendered system and user messages in private provenance. Metadata stays out of
 model input and public replays. Changing wording does not change world generation,
 partial observation, action parsing, score, or the published turn and tick budgets.
@@ -29,51 +30,32 @@ returns the accepted plan. The simulator executes each primitive and preserves
 its ordinary interruption behavior. The next observation describes the previous
 turn's executed primitives; a queued plan can be interrupted before completion.
 
-## Private teacher candidates
+## Teacher exports
 
 ```sh
 nim c -d:release --path:src -o:/tmp/crafter-export tools/export_posttrain.nim
-/tmp/crafter-export /tmp/crafter-candidates 10 1 standard mixed 4
+/tmp/crafter-export /tmp/crafter-examples 10 1 standard mixed 0
 ```
 
-Run from a clean, committed checkout. The exporter records complete games in
-private `trajectories.jsonl` files using the shared Coworld decision/episode
-contract. These are candidates, not approved training examples. Shared review
-and import tooling owns training admission and splits by `seed_family`.
-Families exclude wording and variant, keeping related worlds in the same split.
-Held-out wordings are rejected by this training exporter.
+Run from a clean, committed checkout. The exporter keeps the original
+`train.jsonl`, `validation.jsonl`, and `manifest.json` format.
+It runs complete scripted-forager games, records wording metadata, and keeps
+only plans unchanged by the actual parser. Plans may still be interrupted by
+damage during execution, exactly as in the game.
 
-`execution.jsonl` joins each decision to its queued and actually executed
-primitives, tick interval, interruptions, repairs, and terminal flag.
-`executed_action` in the candidate stream is the normalized plan installed by
-the host; it does not claim that every queued primitive ran. `manifest.json`
-records the source revision, wording selection, and complete-game results.
-Artifacts use mode 0600 and refuse existing output paths.
-
-The teacher is the published scripted `forager`. No provider request, call ID,
-or behavior log probability is fabricated. Compare matched seeds and actions
-across wordings, then evaluate models separately. Deterministic trajectory
-parity does not demonstrate improved learning or resistance to policy collapse.
-
-## Native request evidence
-
-Set `CRAFTER_HOST_TRACE_PATH`, `CRAFTER_ATTEMPT_TRACE_DIR`, and
-`CRAFTER_SOURCE_REVISION` to capture private host decisions and actual request
-attempts. Each request includes the rendered retry message, assistant prefill,
-model, token limit, response, parse result, and failure. Host traces record
-normalized plans and actual per-tick execution. Skipped calls create no attempts.
-Do not publish these files: they include the player's strategy and private notes.
+Mixed selection advances once per episode through the five training wordings.
+Seed families exclude wording and world variant; seed multiples of five enter
+validation. Held-out wordings are rejected. Output directories are private and
+must not already exist.
 
 ```sh
-python3 tools/test_native_prompts.py /tmp/crafter /tmp/crafter-player /tmp/crafter-native
 python3 tools/test_export_posttrain.py /tmp/crafter-export
+python3 tools/test_prompt_games.py /tmp/crafter-train-bridge
 ```
 
-The native workflow uses real host/player processes and a closed local inference
-endpoint. It preserves manifest budgets and checks failed attempts, fallback
-plans, primitive execution, results, and public replay separation. It does not
-claim successful model inference. `--smoke` covers both canonical variants;
-the full panel additionally covers every wording on standard.
+These complete-game checks cover both published variants, plan normalization,
+private notes, and wording-independent outcomes. They do not measure learning
+or resistance to policy collapse.
 
 # Numeric training
 

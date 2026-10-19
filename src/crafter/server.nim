@@ -31,7 +31,7 @@ import
   bitworld/spriteprotocol, bitworld/runtime,
   mummy,
   sim, replays, broadcast, replay_runtime, events, wire_constants,
-  driver, directives, baselines, decide, prompts, llm, evidence
+  driver, directives, baselines, decide, prompts
 import global as board
 
 const
@@ -343,14 +343,6 @@ proc runServerLoop*() =
 
   var sim = initSimServer(config)
   var engine = initDecisionEngine(sim, selection)
-  let hostTrace = getEnv("CRAFTER_HOST_TRACE_PATH")
-  if hostTrace.len > 0:
-    writePrivate(hostTrace, $(%*{
-      "schema_version": 1, "event_type": "host_started", "visibility": "private",
-      "source_revision": getEnv("CRAFTER_SOURCE_REVISION"),
-      "prompt_selection": selection.selectionMetadata(), "seed": config.seed,
-      "variant": config.variant
-    }) & "\n")
 
   let
     ## Both spellings: the platform's episode runner sets HOST/PORT and the
@@ -546,42 +538,16 @@ proc runServerLoop*() =
           break
         let turnIndex = sim.turnsPlayed + 1
         let observation = sim.observationJson(includeNotes = false)
-        let privateView = sim.observationJson(includeNotes = true)
-        let system = systemPrompt(selection)
-        let user = userMessage(engine.seats[0].prompt, $privateView)
         let decision = engine.turn(sim, turnIndex, elapsedSeconds())
         for record in decision.records:
           writeChat(record)
         let record = sim.applyDirective(decision.directive, observation)
         writeChat(record)
-        if hostTrace.len > 0:
-          appendPrivate(hostTrace, %*{
-            "schema_version": 1, "event_type": "host_decision", "visibility": "private",
-            "turn": turnIndex, "tick": sim.tickCount, "seat": 0,
-            "observation": privateView, "prompt_template": selection.promptMetadata(system, user),
-            "prompt": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            "assistant_prefill": ReplyPrefill,
-            "source": $decision.directive.source,
-            "attempt_ids": engine.attemptIds,
-            "selected_attempt_id": (if engine.selectedAttemptId.len > 0: %engine.selectedAttemptId else: newJNull()),
-            "executed_action": {"actions": actionsJson(decision.directive.actions),
-              "say": decision.directive.say, "notes": decision.directive.notes},
-            "queued_primitives": primitivesJson(sim.queue),
-            "dropped": decision.directive.dropped, "over_cap": decision.directive.overCap,
-            "truncated": sim.planTruncated, "unreachable": sim.lastUnreachable
-          })
 
       var events = newJArray()
       var tracker = initBroadcastTracker()
       let before = sim.queue
       sim.step()
-      if hostTrace.len > 0:
-        appendPrivate(hostTrace, %*{
-          "schema_version": 1, "event_type": "host_tick", "visibility": "private",
-          "turn": sim.turnsPlayed, "tick": sim.tickCount,
-          "executed_primitives": primitivesJson(sim.executed),
-          "interrupted": sim.lastInterrupted, "terminal": sim.phase == GameOver
-        })
       if before.len > 0 and sim.executed.len > 0 and
           getEnv("COGAME_EVENTS_URI").len > 0:
         eventRows.add(sim.primitiveRow(sim.executed[^1]))
@@ -609,12 +575,6 @@ proc runServerLoop*() =
 
   if sim.phase != GameOver:
     sim.finish(erComplete, edTurnCap)
-
-  if hostTrace.len > 0:
-    appendPrivate(hostTrace, %*{
-      "schema_version": 1, "event_type": "host_finished", "visibility": "private",
-      "results": parseJson(sim.runResultsJson())
-    })
 
   ## THE LOAD-BEARING STOP RECORD, for EVERY end reason — not just the
   ## wall-clock one. It is written at the LAST SIMULATED TICK and applied on

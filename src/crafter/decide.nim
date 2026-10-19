@@ -19,7 +19,7 @@
 import
   std/[json, monotimes, os, strutils, times],
   curly,
-  sim, driver, directives, baselines, llm, prompts, evidence
+  sim, driver, directives, baselines, llm, prompts
 
 const
   RateGuardWindowSeconds* = 60
@@ -41,8 +41,6 @@ type
     registered*: bool
 
   DecisionEngine* = object
-    attemptIds*: seq[string]
-    selectedAttemptId*: string
     selection*: PromptSelection
     client*: LlmClient
     seats*: seq[SeatPolicy]
@@ -142,8 +140,6 @@ proc turn*(engine: var DecisionEngine, sim: var SimServer, turnIndex,
     seat = 0
     budget = initDuration(milliseconds = max(1, sim.config.turnBudgetMs))
     turnStart = getMonoTime()
-  engine.attemptIds = @[]
-  engine.selectedAttemptId = ""
   ## Throttle state is PER TURN: a 429 on turn k says nothing about turn k+1.
   engine.client.throttled = false
 
@@ -213,29 +209,8 @@ proc turn*(engine: var DecisionEngine, sim: var SimServer, turnIndex,
       user.add("\n\nYour previous reply was not usable. Reply with ONLY the " &
         "JSON object described above, starting with '{', with an " &
         "\"actions\" array.")
-    let system = systemPrompt(engine.selection)
-    let renderedUser = userMessage(engine.seats[seat].prompt, user)
-    let request = engine.client.requestFor(system, renderedUser, seat)
-    let captureDir = getEnv("CRAFTER_ATTEMPT_TRACE_DIR")
-    let attemptId = "turn-" & $turnIndex & "-attempt-" & $(attempt + 1)
-    let attemptPath = captureDir / (attemptId & ".jsonl")
-    let requestBody = parseJson(request.body)
-    let requestedModel = if requestBody.hasKey("model"): requestBody["model"].getStr()
-      else: request.url.split("/model/")[1][0 ..< request.url.split("/model/")[1].len - "/invoke".len]
-    if captureDir.len > 0:
-      writePrivate(attemptPath, $(%*{
-        "schema_version": 1, "event_type": "attempt_started", "visibility": "private",
-        "attempt_id": attemptId, "turn": turnIndex, "seat": seat,
-        "source_revision": getEnv("CRAFTER_SOURCE_REVISION"),
-        "prompt_template": engine.selection.promptMetadata(system, renderedUser),
-        "prompt": [{"role": "system", "content": system},
-          {"role": "user", "content": renderedUser},
-          {"role": "assistant", "content": ReplyPrefill}],
-        "request": {"model": requestedModel, "body": requestBody,
-          "max_output_tokens": engine.client.maxOutputTokens},
-        "platform_call_id": newJNull(), "behavior_logprobs": newJNull()
-      }) & "\n")
-    engine.attemptIds.add(attemptId)
+    let request = engine.client.requestFor(
+      systemPrompt(engine.selection), userMessage(engine.seats[seat].prompt, user), seat)
     ## ONE seat, so this is a batch of ONE through the starter's unchanged
     ## batching path. Never a sequential per-cog loop.
     var batch: RequestBatch
@@ -250,23 +225,16 @@ proc turn*(engine: var DecisionEngine, sim: var SimServer, turnIndex,
       batch, max(1, deadlineMs div 1000))
     let latency = (getMonoTime() - started).inMilliseconds.int
     var cause = "parse_error"
-    var responseText, failure: string
-    var proposal = newJNull()
-    var normalized = newJNull()
     try:
-      responseText = engine.client.textOf(
+      let text = engine.client.textOf(
         responses[0].response, responses[0].error, batch[0].url)
-      proposal = extractJsonObject(responseText)
-      var directive = parseDirective(proposal, sim.config.maxActionsPerTurn)
-      normalized = %*{"actions": actionsJson(directive.actions),
-        "say": directive.say, "notes": directive.notes}
+      var directive = parseDirective(
+        extractJsonObject(text), sim.config.maxActionsPerTurn)
       directive.source = dsLlm
       directive.latencyMs = latency
       result.directive = directive
       open = false
-      engine.selectedAttemptId = attemptId
     except CatchableError as error:
-      failure = error.msg
       if responses[0].error.len > 0:
         cause = (if "timeout" in responses[0].error.toLowerAscii():
                    "timeout" else: "transport_error")
@@ -281,18 +249,6 @@ proc turn*(engine: var DecisionEngine, sim: var SimServer, turnIndex,
           error.msg
       else:
         echo "crafter llm: seat ", seat, " attempt 2 failed: ", error.msg
-    finally:
-      if captureDir.len > 0:
-        appendPrivate(attemptPath, %*{
-          "schema_version": 1, "event_type": "attempt_finished", "visibility": "private",
-          "attempt_id": attemptId, "latency_ms": latency,
-          "http_status": responses[0].response.code,
-          "raw_response": responses[0].response.body,
-          "response": responseText, "transport_error": responses[0].error,
-          "failure": failure, "parsed_action": proposal, "normalized_action": normalized,
-          "selected": not open,
-          "platform_call_id": newJNull(), "behavior_logprobs": newJNull()
-        })
     inc attempt
     if engine.client.throttled and open:
       ## FAIL FAST. The only model left answered 429, so the retry batch would
