@@ -43,7 +43,9 @@ It runs complete scripted-forager games, records wording metadata, and keeps
 only plans unchanged by the actual parser. Plans may still be interrupted by
 damage during execution, exactly as in the game.
 
-Mixed selection advances once per episode through the five training wordings.
+Mixed selection cycles the five training wordings separately within each split,
+so validation does not remove a wording from training. Episode IDs include the
+selected wording, distinguishing matched collections of the same scenario.
 Seed families exclude wording and world variant; seed multiples of five enter
 validation. Held-out wordings are rejected. Output directories are private and
 must not already exist.

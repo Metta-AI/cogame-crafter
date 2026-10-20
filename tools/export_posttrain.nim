@@ -40,9 +40,13 @@ when isMainModule:
     trainRows: seq[string]
     validationRows: seq[string]
     runs = newJArray()
+    wordingCounts: array[2, int]
   for seed in firstSeed ..< firstSeed + episodes:
     var wording = selection
-    if wording.variant == pvMixed: wording.seed += seed - firstSeed
+    let partition = ord(seed mod 5 == 0)
+    if wording.variant == pvMixed:
+      wording.seed += wordingCounts[partition]
+    inc wordingCounts[partition]
     var config = defaultGameConfig()
     config.update($variantConfig)
     config.seed = seed
@@ -69,7 +73,7 @@ when isMainModule:
         let user = userMessage(OperatorPrompt, $view)
         if completion == accepted and parsed.dropped == 0 and parsed.overCap == 0:
           rows.add($(%*{
-            "episode_id": "crafter-" & variant & "-" & $seed,
+            "episode_id": "crafter-" & variant & "-" & $seed & "-" & $wording.selectedVariant,
             "seed": "crafter-" & $seed,
             "decision_id": sim.turnsPlayed,
             "prompt": [
