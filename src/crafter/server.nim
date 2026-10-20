@@ -31,7 +31,7 @@ import
   bitworld/spriteprotocol, bitworld/runtime,
   mummy,
   sim, replays, broadcast, replay_runtime, events, wire_constants,
-  driver, directives, baselines, decide
+  driver, directives, baselines, decide, prompts
 import global as board
 
 const
@@ -327,12 +327,11 @@ proc runServerLoop*() =
   ## The whole episode: lobby, turns, artifacts, a bounded shutdown grace.
   var config = defaultGameConfig()
   let configUri = getEnv("COGAME_CONFIG_URI")
-  if configUri.len > 0:
-    config.update(readCogameUri(configUri, "COGAME_CONFIG_URI"))
-  else:
-    let inline = getEnv("COGAME_CONFIG")
-    if inline.len > 0:
-      config.update(inline)
+  let payload = if configUri.len > 0:
+    readCogameUri(configUri, "COGAME_CONFIG_URI")
+    else: getEnv("COGAME_CONFIG", "{}")
+  let selection = promptSelection(parseJson(payload))
+  config.update(payload)
   ## The seed is randomised HERE, before any seed-derived draw, so every draw
   ## follows the FINAL seed (the starter's rule).
   if config.seed == 0:
@@ -343,7 +342,7 @@ proc runServerLoop*() =
     appState.config = config
 
   var sim = initSimServer(config)
-  var engine = initDecisionEngine(sim)
+  var engine = initDecisionEngine(sim, selection)
 
   let
     ## Both spellings: the platform's episode runner sets HOST/PORT and the

@@ -23,7 +23,7 @@ import
   std/[json, os, strutils],
   bitworld/runtime,
   curly,
-  sim_types, sim_config
+  sim_types, sim_config, prompts
 
 const
   AnthropicUrl = "https://api.anthropic.com/v1/messages"
@@ -229,13 +229,12 @@ proc textOf*(
     raise newException(LlmError, "reply cut off at max_tokens before any " &
       "JSON: " & result.truncateRunes(160).replace("\n", " "))
 
-const SystemPrompt* = """
-You are one cog alone in a 64x64 wilderness. You can see a 9x9 square around
+const CanonicalIntroduction = """You are one cog alone in a 64x64 wilderness. You can see a 9x9 square around
 yourself and nothing else. You are hungry, thirsty and tired, and monsters come
 out at night. There are 22 things you have never done, and the ONLY thing that
-is scored is how many of them you do before you die.
+is scored is how many of them you do before you die."""
 
-WHAT YOU GET EACH TURN
+const Rules = """WHAT YOU GET EACH TURN
 - "view": 9 rows of 9 characters, the world around you, NORTH UP. You are the @
   in the middle. Row 0 is north, the last row is south.
 - "region": the whole 64x64 world you have explored, squashed 4x4 into 16x16.
@@ -273,11 +272,15 @@ STAYING ALIVE
   and shoot arrows down straight lines.
 
 WHAT YOU SEND
-One JSON object with up to 12 actions. They run one per tick, in order, up to 24
+"""
+
+const CanonicalPlanning = """One JSON object with up to 12 actions. They run one per tick, in order, up to 24
 ticks, then you are asked again. ANY hit you take ENDS YOUR TURN EARLY and
 throws away the rest of your plan - so do not plan 24 ticks of mining with a
 zombie on screen.
-  {"act":"goto","x":35,"y":25}   WALK THERE. Shortest path through ground you
+"""
+
+const ActionReference = """  {"act":"goto","x":35,"y":25}   WALK THERE. Shortest path through ground you
       have already seen; it will not path through water, lava, rock or the
       unknown. It stops ON the target if you can stand there, otherwise NEXT TO
       it, FACING it - which is exactly what you want before "do".
@@ -291,14 +294,48 @@ zombie on screen.
   {"act":"place_plant"} {"act":"make_wood_pickaxe"} ... all 17 by name.
 
 HOW YOU ARE SCORED
-Only the count of achievements. Surviving longer is the tie-break, and only the
-tie-break. A cog that hides in a hole all episode scores almost nothing.
+"""
 
+const CanonicalScoring = """Only the count of achievements. Surviving longer is the tie-break, and only the
+tie-break. A cog that hides in a hole all episode scores almost nothing.
+"""
+
+const ReplyRules = """
 REPLY FORMAT
 Reply with ONE JSON object and NOTHING else. Your reply MUST begin with the
 character { and end with }. No prose, no markdown, no code fences.
 {"actions":[{"act":"goto","x":35,"y":25},{"act":"do","n":4}],"say":"<=160 chars","notes":"<=400 chars"}
 """
+
+proc systemPrompt*(selection: PromptSelection): string =
+  let introduction = case selection.selectedVariant
+    of pvCanonical: CanonicalIntroduction
+    of pvPlain: "You are a lone cog in a 64x64 wilderness, with a view limited to a 9x9 square around you. Hunger, thirst and fatigue threaten you, and monsters appear at night. Complete as many of the 22 achievements as possible before dying; survival time breaks ties."
+    of pvNumbered: "1. You are one cog alone in a 64x64 wilderness.\n2. Your current view covers only the surrounding 9x9 square.\n3. You are hungry, thirsty and tired; monsters come out at night.\n4. Complete the 22 achievements before you die. Achievement count determines your score, with survival as the tie-break."
+    of pvQuestions: "Where are you? Alone as a cog in a 64x64 wilderness. What can you see? Only a 9x9 square around yourself. What threatens you? Hunger, thirst, fatigue and monsters at night. What is your objective? Complete as many of the 22 achievements as you can before death; survival breaks ties."
+    of pvReordered: "Complete as many of the 22 achievements as possible before you die; surviving longer is the tie-break. You are hungry, thirsty and tired, with monsters coming out at night. As the only cog in a 64x64 wilderness, you can see just the 9x9 square around yourself."
+    of pvHeldoutBriefing: "Your assignment is to control a solitary cog in a 64x64 wilderness. Your sight reaches the surrounding 9x9 square only. Manage hunger, thirst and fatigue while facing monsters at night. Pursue the 22 achievements before death: their count ranks your run, and survival time resolves ties."
+    of pvHeldoutReference: "Setting: 64x64 wilderness; one cog, alone. Visibility: the surrounding 9x9 square only. Conditions: hunger, thirst, fatigue and nocturnal monsters. Objective: the greatest number of the 22 achievements before death, using survival time as the tie-break."
+    of pvMixed: raise newException(ValueError, "mixed selection must resolve to a training wording")
+  let planning = case selection.selectedVariant
+    of pvCanonical: CanonicalPlanning
+    of pvPlain: "Submit one JSON object containing at most 12 actions. The plan executes in order, one primitive per tick, for at most 24 ticks before another request. Taking any damage immediately ends the turn and discards unfinished actions. Avoid a long mining plan while a zombie is visible.\n"
+    of pvNumbered: "1. Send a single JSON object with no more than 12 actions.\n2. Actions execute sequentially, one primitive per tick, with a 24-tick turn limit.\n3. Any incoming hit interrupts the turn and discards the remaining plan.\n4. With a zombie on screen, do not commit to 24 ticks of mining.\n"
+    of pvQuestions: "How much can you plan? Up to 12 actions in one JSON object. How do they run? In sequence, one primitive per tick, until the 24-tick limit and the next request. What if you are hit? The turn ends immediately and the rest is discarded. Should you mine for 24 ticks with a zombie visible? No.\n"
+    of pvReordered: "Any hit interrupts your turn and cancels its remaining actions; avoid 24-tick mining plans with a zombie on screen. Otherwise your ordered plan runs one primitive per tick, for at most 24 ticks before you are asked again. Send at most 12 actions in a single JSON object.\n"
+    of pvHeldoutBriefing: "Plan a bounded sequence: a single JSON object may hold up to 12 actions. Execution proceeds in order at one primitive per tick, stopping for a new request after at most 24 ticks. Damage cuts the turn short and throws away unfinished work. A visible zombie makes a 24-tick mining commitment unwise.\n"
+    of pvHeldoutReference: "Submission: one JSON object, at most 12 actions. Execution: ordered primitives, one per tick, no more than 24 ticks per turn. Interruption: any hit ends the turn and drops the remainder. Planning hint: avoid mining for all 24 ticks while a zombie is visible.\n"
+    of pvMixed: raise newException(ValueError, "mixed selection must resolve to a training wording")
+  let scoring = case selection.selectedVariant
+    of pvCanonical: CanonicalScoring
+    of pvPlain: "Your achievement count determines your score. Longer survival only breaks ties; hiding in a hole for the entire episode earns almost nothing.\n"
+    of pvNumbered: "1. Achievement count is the scoring objective.\n2. Survival time only breaks achievement ties.\n3. Hiding in a hole all episode earns almost nothing.\n"
+    of pvQuestions: "What determines your score? The number of achievements. Does survival matter? Only to break ties. What if you hide in a hole all episode? You score almost nothing.\n"
+    of pvReordered: "Hiding in a hole all episode scores almost nothing. Pursue achievements: their count determines the score, and survival time is only the tie-break.\n"
+    of pvHeldoutBriefing: "Measure progress by achievements completed. Survival duration resolves ties and has no higher priority. Spending the episode hiding in a hole scores almost nothing.\n"
+    of pvHeldoutReference: "Primary objective: achievement count. Tie-break only: survival duration. Strategic implication: an episode spent hiding in a hole scores almost nothing.\n"
+    of pvMixed: raise newException(ValueError, "mixed selection must resolve to a training wording")
+  introduction & "\n\n" & Rules & planning & ActionReference & scoring & "\n" & ReplyRules
 
 proc operatorBlock*(prompt: string): string =
   ## The seat's own PLAYER_PROMPT, under a heading that tells the model how

@@ -152,6 +152,7 @@ headless chromium** against the replay that episode produced.
 
 ## Documentation
 
+- [`docs/TRAINING.md`](docs/TRAINING.md) — prompt variants, private candidate data, and full-plan collection
 - [`docs/RULES.md`](docs/RULES.md) — the world, the clock, the vitals, the
   creatures, the end conditions
 - [`docs/ACTIONS.md`](docs/ACTIONS.md) — the reply schema and every per-field cap

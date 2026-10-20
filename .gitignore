@@ -13,3 +13,6 @@ __pycache__/
 /tests/test_crafter_*
 !/tests/test_crafter_*.nim
 /tests/shards/tests
+
+# Pinned reference checkout used by the CI broadcast derivation check.
+/.starter/

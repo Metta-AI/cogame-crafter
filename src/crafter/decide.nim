@@ -19,7 +19,7 @@
 import
   std/[json, monotimes, os, strutils, times],
   curly,
-  sim, driver, directives, baselines, llm
+  sim, driver, directives, baselines, llm, prompts
 
 const
   RateGuardWindowSeconds* = 60
@@ -41,6 +41,7 @@ type
     registered*: bool
 
   DecisionEngine* = object
+    selection*: PromptSelection
     client*: LlmClient
     seats*: seq[SeatPolicy]
     lastBatchStart*: MonoTime
@@ -49,7 +50,8 @@ type
     requestTimes*: seq[MonoTime]
     records*: seq[string]      ## chat records queued for the replay writer
 
-proc initDecisionEngine*(sim: SimServer): DecisionEngine =
+proc initDecisionEngine*(sim: SimServer, selection: PromptSelection): DecisionEngine =
+  result.selection = selection
   result.client = newLlmClient(sim.config)
   result.seats = newSeq[SeatPolicy](sim.seatCount())
   for i in 0 ..< result.seats.len:
@@ -208,7 +210,7 @@ proc turn*(engine: var DecisionEngine, sim: var SimServer, turnIndex,
         "JSON object described above, starting with '{', with an " &
         "\"actions\" array.")
     let request = engine.client.requestFor(
-      SystemPrompt, userMessage(engine.seats[seat].prompt, user), seat)
+      systemPrompt(engine.selection), userMessage(engine.seats[seat].prompt, user), seat)
     ## ONE seat, so this is a batch of ONE through the starter's unchanged
     ## batching path. Never a sequential per-cog loop.
     var batch: RequestBatch

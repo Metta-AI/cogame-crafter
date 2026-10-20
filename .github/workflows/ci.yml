@@ -225,7 +225,7 @@ jobs:
               fi
               echo "::group::nim r ${flags} --path:src ${t}"
               # shellcheck disable=SC2086
-              if ! nim r ${flags} --path:src "${t}"; then
+              if ! nim r ${flags} --path:src --out:"${RUNNER_TEMP}/$(basename "${t}" .nim)-${m}" "${t}"; then
                 echo "::error::FAILED (${m}) ${t}"
                 fail=1
               fi
@@ -238,6 +238,13 @@ jobs:
         run: |
           nim c -d:release --path:src -o:/tmp/crafter-train-bridge tools/train_bridge.nim
           python3 tools/test_train_bridge.py /tmp/crafter-train-bridge
+
+      - name: Complete private source candidates
+        run: |
+          nim c -d:release --path:src -o:/tmp/crafter-export tools/export_posttrain.nim
+          python3 tools/test_export_posttrain.py /tmp/crafter-export
+          python3 tools/test_prompt_games.py /tmp/crafter-train-bridge
+
 
   # ---------------------------------------------------------------------
   # Packaging smoke: the production image builds, and one real episode runs

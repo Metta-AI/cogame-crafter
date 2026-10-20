@@ -83,6 +83,27 @@
         "players"
       ],
       "properties": {
+        "promptVariant": {
+          "type": "string",
+          "enum": [
+            "canonical",
+            "plain",
+            "numbered",
+            "questions",
+            "reordered",
+            "heldout-briefing",
+            "heldout-reference",
+            "mixed"
+          ],
+          "default": "canonical",
+          "description": "Episode-stable rules wording; held-out wordings are evaluation-only."
+        },
+        "promptSeed": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Independent wording seed; explicitly required for mixed selection."
+        },
         "tokens": {
           "type": "array",
           "items": {
