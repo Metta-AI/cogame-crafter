@@ -88,3 +88,6 @@ Metta RL completed 512 steps per variant and evaluation; mean returns were
 mean scores were 165.5 and 290.75. These pilots prove the optimizer,
 checkpoint, and evaluator paths; the short runs do not establish policy
 quality.
+
+Episode IDs include the requested selection, resolved wording, and prompt seed.
+Matched exports remain distinct while scenario seed families stay unchanged.

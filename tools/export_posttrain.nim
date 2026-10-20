@@ -73,7 +73,8 @@ when isMainModule:
         let user = userMessage(OperatorPrompt, $view)
         if completion == accepted and parsed.dropped == 0 and parsed.overCap == 0:
           rows.add($(%*{
-            "episode_id": "crafter-" & variant & "-" & $seed & "-" & $wording.selectedVariant,
+            "episode_id": "crafter-" & variant & "-" & $seed & "-" & $wording.variant & "-" &
+              $wording.selectedVariant & "-" & $wording.seed,
             "seed": "crafter-" & $seed,
             "decision_id": sim.turnsPlayed,
             "prompt": [
