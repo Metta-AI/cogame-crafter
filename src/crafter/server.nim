@@ -31,7 +31,7 @@ import
   bitworld/spriteprotocol, bitworld/runtime,
   mummy,
   sim, replays, broadcast, replay_runtime, events, wire_constants,
-  driver, directives, baselines, decide, prompts
+  driver, directives, baselines, decide, prompts, training
 import global as board
 
 const
@@ -538,10 +538,14 @@ proc runServerLoop*() =
           break
         let turnIndex = sim.turnsPlayed + 1
         let observation = sim.observationJson(includeNotes = false)
+        let privateObservation = sim.observationJson(includeNotes = true)
         let decision = engine.turn(sim, turnIndex, elapsedSeconds())
         for record in decision.records:
           writeChat(record)
         let record = sim.applyDirective(decision.directive, observation)
+        engine.trajectory.recordAppliedDecision(turnIndex, privateObservation,
+          selection, engine.seats[0].prompt, sim, decision.directive, record,
+          engine.nativeAttempts, engine.seats[0].label)
         writeChat(record)
 
       var events = newJArray()
@@ -589,6 +593,7 @@ proc runServerLoop*() =
   recordHash()
 
   let results = sim.runResultsJson()
+  engine.trajectory.finishNativeTrajectory(sim)
   writeChat(resultRecord(sim))
 
   try:

@@ -1,5 +1,44 @@
 # Prompt diversity and teacher data
 
+## Native hosted model capture
+
+When the platform injects `COGAME_SAVE_TRAJECTORY_URI`, the ordinary native
+game records its private decision stream through Bitworld's canonical writer.
+`COWORLD_EPISODE_ID`, `COWORLD_GAME_VERSION`, and `COWORLD_SOURCE_REVISION`
+must identify that execution. Missing identity pins fail before play rather
+than fabricating provenance. The completed private artifact is sealed before
+results trigger player teardown; public replays keep their existing format.
+
+Every attempted native Messages request retains the exact system, user and
+assistant-prefill messages, request body, received response, available platform
+call/serving identities, usage and sampling evidence. Unavailable tokens or
+likelihoods stay absent. The supplied assistant `{` is prompt context: the
+received generated suffix is preserved exactly, without prepending that brace
+to the training target. Downstream SFT must support that continuation contract
+and use the same target tokenizer/template during training and serving.
+
+The engine joins attempts to the applied plan after installation. Rejected
+replies, retries, native parser drops/caps and fallback plans remain explicit.
+Plans with dropped actions or action-count caps do not become accepted model
+labels. Registered scripted
+controls are retained with unknown origin in this native stream, without
+automatically granting teacher approval. The separate source teacher exporter
+below retains its own original contract.
+
+```sh
+nim r --path:src tests/test_crafter_native_capture.nim
+```
+
+This runs complete native simulator episodes through a loopback Messages
+provider for both variants, comparing capture on/off outcomes and checking
+prefills, rejected retries, fallbacks and private/public separation. It removes
+wall pacing for bounded deterministic CPU checks. Its fixture replies are not
+real-model training data. Production hosted capture, authenticated receipt
+admission, checkpoint serving and exact training/serving continuation parity
+still require live qualification after publication.
+
+## Prompt selection
+
 Set `promptVariant` to `canonical`, `plain`, `numbered`, `questions`, or
 `reordered`. `mixed` selects one of those five using explicit nonnegative
 `promptSeed % 5`. Selection remains fixed throughout the episode and does not

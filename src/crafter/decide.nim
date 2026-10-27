@@ -17,9 +17,10 @@
 ## `fallback` record names the cause.
 
 import
-  std/[json, monotimes, os, strutils, times],
+  std/[json, monotimes, options, os, strutils, times],
+  bitworld/decision_trajectory,
   curly,
-  sim, driver, directives, baselines, llm, prompts
+  sim, driver, directives, baselines, llm, prompts, training
 
 const
   RateGuardWindowSeconds* = 60
@@ -41,6 +42,8 @@ type
     registered*: bool
 
   DecisionEngine* = object
+    trajectory*: DecisionTrajectory
+    nativeAttempts*: seq[DecisionAttempt]
     selection*: PromptSelection
     client*: LlmClient
     seats*: seq[SeatPolicy]
@@ -51,6 +54,7 @@ type
     records*: seq[string]      ## chat records queued for the replay writer
 
 proc initDecisionEngine*(sim: SimServer, selection: PromptSelection): DecisionEngine =
+  result.trajectory = initNativeTrajectory(sim.config)
   result.selection = selection
   result.client = newLlmClient(sim.config)
   result.seats = newSeq[SeatPolicy](sim.seatCount())
@@ -140,6 +144,7 @@ proc turn*(engine: var DecisionEngine, sim: var SimServer, turnIndex,
     seat = 0
     budget = initDuration(milliseconds = max(1, sim.config.turnBudgetMs))
     turnStart = getMonoTime()
+  engine.nativeAttempts.setLen(0)
   ## Throttle state is PER TURN: a 429 on turn k says nothing about turn k+1.
   engine.client.throttled = false
 
@@ -224,17 +229,30 @@ proc turn*(engine: var DecisionEngine, sim: var SimServer, turnIndex,
     let responses = engine.client.curl.makeRequests(
       batch, max(1, deadlineMs div 1000))
     let latency = (getMonoTime() - started).inMilliseconds.int
+    var evidence: DecisionAttempt
+    if not engine.trajectory.isNil:
+      evidence = nativeAttempt(engine.seats[seat].label, turnIndex,
+        attempt, request.body)
     var cause = "parse_error"
     try:
+      if not engine.trajectory.isNil:
+        evidence.receiveNativeResponse(responses[0].response,
+          responses[0].error, latency)
       let text = engine.client.textOf(
         responses[0].response, responses[0].error, batch[0].url)
       var directive = parseDirective(
         extractJsonObject(text), sim.config.maxActionsPerTurn)
       directive.source = dsLlm
       directive.latencyMs = latency
+      if not engine.trajectory.isNil:
+        evidence.parsedAction = directive.directiveAction()
+        evidence.accepted = directive.dropped == 0 and directive.overCap == 0
+        if not evidence.accepted:
+          evidence.rejectionReason = some("native parser dropped or capped proposed actions")
       result.directive = directive
       open = false
     except CatchableError as error:
+      evidence.rejectionReason = some(error.msg)
       if responses[0].error.len > 0:
         cause = (if "timeout" in responses[0].error.toLowerAscii():
                    "timeout" else: "transport_error")
@@ -249,6 +267,8 @@ proc turn*(engine: var DecisionEngine, sim: var SimServer, turnIndex,
           error.msg
       else:
         echo "crafter llm: seat ", seat, " attempt 2 failed: ", error.msg
+    if not engine.trajectory.isNil:
+      engine.nativeAttempts.add(evidence)
     inc attempt
     if engine.client.throttled and open:
       ## FAIL FAST. The only model left answered 429, so the retry batch would
