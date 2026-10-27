@@ -455,7 +455,8 @@ proc applyGlobalViewerMessage*(state: var GlobalViewerState, message: string) =
           state.replayCommands.add(ch)
     of SpriteClientInputMessage:
       discard
-    of SpriteClientReadyMessage, SpriteClientDebugSpriteMessage:
+    of SpriteClientReadyMessage, SpriteClientDebugSpriteMessage,
+       SpriteClientSpritesOffMessage:
       discard
 
 proc applyPlayerViewerMessage*(state: var PlayerViewerState, message: string,
